@@ -9,6 +9,11 @@ pub mod parsers;
 
 type PartFunction<Input, Output> = dyn Fn(Input) -> Result<Output>;
 
+#[allow(non_snake_case)]
+pub fn NOT_IMPLEMENTED<I>(_: I) -> Result<&'static str> {
+    Ok("Not Implemented")
+}
+
 fn bench_function<Input, Output>(
     id: u8,
     input: Input,
