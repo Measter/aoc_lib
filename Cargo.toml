@@ -10,3 +10,7 @@ edition = "2018"
 color-eyre = "0.5.10"
 human_format = "1.0.3"
 nom = "6.0.1"
+tempfile = "3.1.0"
+crossterm = "0.18"
+tui = { version = "0.13.0", default-features = false, features = ["crossterm"] }
+bytesize = "1.0.1"
