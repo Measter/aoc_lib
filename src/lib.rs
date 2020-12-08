@@ -23,6 +23,35 @@ pub mod parsers;
 
 type PartFunction<Input, Output> = dyn Fn(Input) -> Result<Output>;
 
+struct Args {
+    bench: bool,
+    bench_mem: bool,
+    part1_file: Option<String>,
+    part2_file: Option<String>,
+}
+
+fn get_args() -> Args {
+    let mut given_args = std::env::args().skip(1);
+    let mut args = Args {
+        bench: true,
+        bench_mem: true,
+        part1_file: None,
+        part2_file: None,
+    };
+
+    while let Some(arg) = given_args.next() {
+        match &*arg {
+            "--nobench" => args.bench = false,
+            "--nomem" => args.bench_mem = false,
+            "--p1" => args.part1_file = given_args.next(),
+            "--p2" => args.part2_file = given_args.next(),
+            _ => {}
+        }
+    }
+
+    args
+}
+
 struct BenchResult<T> {
     result: T,
     total_runs: u32,
@@ -268,6 +297,7 @@ where
 
 fn bench_function<Input, Output>(
     alloc: &TracingAlloc,
+    args: &Args,
     id: u8,
     input: Input,
     part: &PartFunction<Input, Output>,
@@ -293,10 +323,12 @@ where
         }
     }
 
-    // Now the cache is warm, run with tracing.
-    alloc.enable_tracing();
-    let _ = part(input);
-    alloc.disable_tracing();
+    if args.bench_mem {
+        // Now the cache is warm, run with tracing.
+        alloc.enable_tracing();
+        let _ = part(input);
+        alloc.disable_tracing();
+    }
 
     let total_runs = (3.0 / min_run.as_secs_f64()).ceil().max(10.0).min(10e6) as u32;
 
@@ -330,6 +362,44 @@ where
     })
 }
 
+fn full_bench_fn<Input, Output>(
+    alloc: &TracingAlloc,
+    args: &Args,
+    input: Input,
+    part_id: u8,
+    part: &PartFunction<Input, Output>,
+) -> Result<(String, BenchResult<Output>)>
+where
+    Output: Display,
+    Input: Copy,
+{
+    if args.bench_mem {
+        let part1_file = if let Some(path) = &args.part1_file {
+            let mut fo = std::fs::OpenOptions::new();
+            fo.write(true)
+                .read(true)
+                .truncate(true)
+                .create(true)
+                .open(path)?
+        } else {
+            tempfile::tempfile()?
+        };
+
+        alloc.set_file(part1_file);
+        let part1_result = bench_function(alloc, args, part_id, input, part)?;
+        let mut part1_trace = String::new();
+
+        let mut trace_file = alloc.clear_file().unwrap(); // Should get it back.
+        trace_file.seek(SeekFrom::Start(0))?;
+        trace_file.read_to_string(&mut part1_trace)?;
+
+        Ok((part1_trace, part1_result))
+    } else {
+        let part1_result = bench_function(alloc, args, part_id, input, part)?;
+        Ok((String::new(), part1_result))
+    }
+}
+
 pub fn run<Input, Output, Output2>(
     alloc: &TracingAlloc,
     name: &str,
@@ -342,23 +412,22 @@ where
     Output2: Display,
     Input: Copy,
 {
-    // Part 1
-    alloc.set_file(tempfile::tempfile()?);
-    let part1_result = bench_function(alloc, 1, input, part1)?;
-    let mut part1_trace = String::new();
+    let args = get_args();
 
-    let mut trace_file = alloc.clear_file().unwrap(); // Should get it back.
-    trace_file.seek(SeekFrom::Start(0))?;
-    trace_file.read_to_string(&mut part1_trace)?;
+    if !args.bench {
+        println!("{}", name);
 
-    // Part 2
-    alloc.set_file(tempfile::tempfile()?);
-    let part2_result = bench_function(alloc, 2, input, part2)?;
-    let mut part2_trace = String::new();
+        let p1_result = part1(input).with_context(|| eyre!("Error running Part 1"))?;
+        let p2_result = part2(input).with_context(|| eyre!("Error running Part 2"))?;
 
-    let mut trace_file = alloc.clear_file().unwrap(); // Should get it back.
-    trace_file.seek(SeekFrom::Start(0))?;
-    trace_file.read_to_string(&mut part2_trace)?;
+        println!("Part 1: {}", p1_result);
+        println!("Part 2: {}", p2_result);
+
+        return Ok(());
+    }
+
+    let (part1_trace, part1_result) = full_bench_fn(alloc, &args, input, 1, part1)?;
+    let (part2_trace, part2_result) = full_bench_fn(alloc, &args, input, 2, part2)?;
 
     print_results(
         name,
