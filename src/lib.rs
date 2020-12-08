@@ -365,6 +365,7 @@ where
 fn full_bench_fn<Input, Output>(
     alloc: &TracingAlloc,
     args: &Args,
+    file: Option<&String>,
     input: Input,
     part_id: u8,
     part: &PartFunction<Input, Output>,
@@ -374,7 +375,7 @@ where
     Input: Copy,
 {
     if args.bench_mem {
-        let part1_file = if let Some(path) = &args.part1_file {
+        let trace_file = if let Some(path) = file {
             let mut fo = std::fs::OpenOptions::new();
             fo.write(true)
                 .read(true)
@@ -385,15 +386,15 @@ where
             tempfile::tempfile()?
         };
 
-        alloc.set_file(part1_file);
-        let part1_result = bench_function(alloc, args, part_id, input, part)?;
-        let mut part1_trace = String::new();
+        alloc.set_file(trace_file);
+        let result = bench_function(alloc, args, part_id, input, part)?;
+        let mut mem_trace = String::new();
 
         let mut trace_file = alloc.clear_file().unwrap(); // Should get it back.
         trace_file.seek(SeekFrom::Start(0))?;
-        trace_file.read_to_string(&mut part1_trace)?;
+        trace_file.read_to_string(&mut mem_trace)?;
 
-        Ok((part1_trace, part1_result))
+        Ok((mem_trace, result))
     } else {
         let part1_result = bench_function(alloc, args, part_id, input, part)?;
         Ok((String::new(), part1_result))
@@ -426,8 +427,8 @@ where
         return Ok(());
     }
 
-    let (part1_trace, part1_result) = full_bench_fn(alloc, &args, input, 1, part1)?;
-    let (part2_trace, part2_result) = full_bench_fn(alloc, &args, input, 2, part2)?;
+    let (part1_trace, part1_result) = full_bench_fn(alloc, &args, args.part1_file.as_ref(), input, 1, part1)?;
+    let (part2_trace, part2_result) = full_bench_fn(alloc, &args, args.part2_file.as_ref(), input, 2, part2)?;
 
     print_results(
         name,
