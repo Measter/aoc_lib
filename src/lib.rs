@@ -25,39 +25,31 @@ type PartFunction<Input, Output> = dyn Fn(Input) -> Result<Output>;
 
 struct BenchResult<T> {
     result: T,
+    total_runs: u32,
     min_run: Duration,
     mean_run: Duration,
     max_run: Duration,
 }
 
-fn get_data(trace_input: &str) -> Vec<(f64, f64)> {
+fn get_data(trace_input: &str) -> (u128, Vec<(f64, f64)>) {
     let mut points = Vec::new();
     let mut cur_bytes = 0;
-    let mut peak_bytes = 0;
-    let mut _alloc_events = 0;
-    let mut _alloc_bytes = 0;
-    let mut _free_events = 0;
-    let mut _free_bytes = 0;
+    let mut end_ts = 0;
 
-    for (i, line) in trace_input.lines().enumerate() {
+    for line in trace_input.lines() {
         let mut parts = line.split_whitespace().map(str::trim);
 
-        let size: isize = match (parts.next(), parts.next().map(str::parse)) {
-            (Some("A"), Some(size)) => {
-                let size = size.unwrap();
-
-                _alloc_events += 1;
-                _alloc_bytes += size;
-
-                size
-            }
-            (Some("F"), Some(size)) => {
-                let size = size.unwrap();
-
-                _free_events += 1;
-                _free_bytes += size;
-
-                -size
+        let (size, ts): (isize, u128) = match (
+            parts.next(),
+            parts.next().map(str::parse),
+            parts.next().map(str::parse),
+        ) {
+            (Some("A"), Some(Ok(ts)), Some(Ok(size))) => (size, ts),
+            (Some("F"), Some(Ok(ts)), Some(Ok(size))) => (-size, ts),
+            (Some("S"), Some(Ok(ts)), _) => (0, ts),
+            (Some("E"), Some(Ok(ts)), _) => {
+                end_ts = ts;
+                (0, ts)
             }
             _ => {
                 continue;
@@ -65,12 +57,11 @@ fn get_data(trace_input: &str) -> Vec<(f64, f64)> {
         };
 
         cur_bytes += size;
-        points.push((i as f64, cur_bytes as f64));
 
-        peak_bytes = peak_bytes.max(cur_bytes);
+        points.push((ts as f64, cur_bytes as f64));
     }
 
-    points
+    (end_ts, points)
 }
 
 fn get_precision(val: Duration) -> usize {
@@ -91,15 +82,21 @@ fn write_results_timing<'a, B: 'a, Output1, Output2>(
     Output1: Display,
     Output2: Display,
 {
-    let headers = [" ", "Result", "Min", "Mean", "Max"];
+    let headers = [" ", "Result", "N. Runs", "Min", "Mean", "Max"];
 
     let min_prec = get_precision(part1_result.min_run);
     let mean_prec = get_precision(part1_result.mean_run);
     let max_prec = get_precision(part1_result.max_run);
+    let total_runs = if part1_result.total_runs < 1000 {
+        part1_result.total_runs.to_string()
+    } else {
+        human_format::Formatter::new().format(part1_result.total_runs as f64)
+    };
 
     let part1_results = [
         "Part 1".to_owned(),
         part1_result.result.to_string(),
+        total_runs,
         format!("{:.min_prec$?}", part1_result.min_run, min_prec = min_prec),
         format!(
             "{:.mean_prec$?}",
@@ -112,10 +109,16 @@ fn write_results_timing<'a, B: 'a, Output1, Output2>(
     let min_prec = get_precision(part2_result.min_run);
     let mean_prec = get_precision(part2_result.mean_run);
     let max_prec = get_precision(part2_result.max_run);
+    let total_runs = if part2_result.total_runs < 1000 {
+        part2_result.total_runs.to_string()
+    } else {
+        human_format::Formatter::new().format(part2_result.total_runs as f64)
+    };
 
     let part2_results = [
         "Part 2".to_owned(),
         part2_result.result.to_string(),
+        total_runs,
         format!("{:.min_prec$?}", part2_result.min_run, min_prec = min_prec),
         format!(
             "{:.mean_prec$?}",
@@ -140,6 +143,7 @@ fn write_results_timing<'a, B: 'a, Output1, Output2>(
         Constraint::Length(12),
         Constraint::Length(12),
         Constraint::Length(12),
+        Constraint::Length(12),
     ]);
     f.render_widget(part_results, chunk);
 }
@@ -150,20 +154,12 @@ fn draw_memory_graph<'a, B: Backend + 'a>(
     part2_trace: &str,
     mut chunk: Rect,
 ) {
-    let part1_data = get_data(part1_trace);
-    let part2_data = get_data(part2_trace);
+    let (part1_end_ts, part1_data) = get_data(part1_trace);
+    let (part2_end_ts, part2_data) = get_data(part2_trace);
 
-    let max_x_p1 = part1_data
-        .iter()
-        .map(|(x, _)| *x)
-        .max_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap_or(0.0);
-    let max_x_p2 = part2_data
-        .iter()
-        .map(|(x, _)| *x)
-        .max_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap_or(0.0);
-    let max_x = max_x_p1.max(max_x_p2);
+    let max_x = part1_end_ts.max(part2_end_ts);
+    let end_ts = Duration::from_nanos(max_x as u64);
+    let max_x = max_x as f64;
 
     let max_y_p1 = part1_data
         .iter()
@@ -204,7 +200,10 @@ fn draw_memory_graph<'a, B: Backend + 'a>(
 
     let chart = Chart::new(datasets)
         .block(chart_block)
-        .x_axis(Axis::default().bounds([0.0, max_x]))
+        .x_axis(Axis::default().bounds([0.0, max_x]).labels(vec![
+            Span::styled(0.to_string(), Style::default().fg(Color::Gray)),
+            Span::styled(format!("{:?}", end_ts), Style::default().fg(Color::Gray)),
+        ]))
         .y_axis(Axis::default().bounds([0.0, max_y]).labels(vec![
             Span::styled(ByteSize(0).to_string(), Style::default().fg(Color::Gray)),
             Span::styled(
@@ -273,13 +272,10 @@ where
     Output: Display,
     Input: Copy,
 {
+    println!("Running part {}...", id);
+    let part_result = part(input).with_context(|| eyre!("Error running Part {}", id))?;
+
     println!("Benching part {}...", id);
-    alloc.enable_tracing();
-    let part_result = part(input).with_context(|| eyre!("Error running Part {}", id));
-    alloc.disable_tracing();
-
-    let part_result = part_result?;
-
     // Run a few times to get an estimate of how long it takes.
     let mut min_run = Duration::from_secs(u64::MAX);
 
@@ -293,7 +289,12 @@ where
         }
     }
 
-    let total_runs = (0.5 / min_run.as_secs_f64()).ceil().max(10.0).min(10e6) as u32;
+    // Now the cache is warm, run with tracing.
+    alloc.enable_tracing();
+    let _ = part(input);
+    alloc.disable_tracing();
+
+    let total_runs = (3.0 / min_run.as_secs_f64()).ceil().max(10.0).min(10e6) as u32;
 
     let mut total_time = Duration::default();
     let mut min_run = Duration::from_secs(u64::MAX);
@@ -318,6 +319,7 @@ where
 
     Ok(BenchResult {
         result: part_result,
+        total_runs,
         min_run,
         mean_run,
         max_run,
