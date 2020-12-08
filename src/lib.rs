@@ -34,6 +34,7 @@ struct BenchResult<T> {
 fn get_data(trace_input: &str) -> (u128, Vec<(f64, f64)>) {
     let mut points = Vec::new();
     let mut cur_bytes = 0;
+    let mut prev_bytes = 0;
     let mut end_ts = 0;
 
     for line in trace_input.lines() {
@@ -58,7 +59,10 @@ fn get_data(trace_input: &str) -> (u128, Vec<(f64, f64)>) {
 
         cur_bytes += size;
 
+        points.push((ts as f64, prev_bytes as f64));
         points.push((ts as f64, cur_bytes as f64));
+
+        prev_bytes = cur_bytes;
     }
 
     (end_ts, points)
