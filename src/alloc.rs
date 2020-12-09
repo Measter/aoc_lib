@@ -1,6 +1,7 @@
+use once_cell::sync::Lazy;
+use std::sync::RwLock;
 use std::{
     alloc::{GlobalAlloc, System},
-    cell::UnsafeCell,
     fs::File,
     io::Write,
     sync::atomic::{AtomicBool, Ordering},
@@ -14,12 +15,21 @@ pub enum Event {
     End,
 }
 
+struct TraceData {
+    output_file: Option<File>,
+    timestamp: Option<Instant>,
+}
+
+static OUTPUT_FILE: Lazy<RwLock<TraceData>> = Lazy::new(|| {
+    RwLock::new(TraceData {
+        output_file: None,
+        timestamp: None,
+    })
+});
+
 pub struct TracingAlloc {
     inner: System,
     active: AtomicBool,
-    file_access_sync: AtomicBool,
-    output_file: UnsafeCell<Option<File>>,
-    timestamp: UnsafeCell<Option<Instant>>,
 }
 
 unsafe impl Sync for TracingAlloc {}
@@ -29,28 +39,15 @@ impl TracingAlloc {
         Self {
             inner: System,
             active: AtomicBool::new(false),
-            file_access_sync: AtomicBool::new(false),
-            output_file: UnsafeCell::new(None),
-            timestamp: UnsafeCell::new(None),
         }
     }
 
     pub fn enable_tracing(&self) {
-        // Wait until the file is no longer being changed.
-        while self
-            .file_access_sync
-            .compare_and_swap(false, true, Ordering::Relaxed)
-            != false
-        {}
-        std::sync::atomic::fence(Ordering::Acquire);
+        let mut lock = OUTPUT_FILE.write().unwrap();
+        lock.timestamp = Some(Instant::now());
+        std::mem::drop(lock); // Must drop the lock before writing the start event.
 
-        unsafe {
-            self.timestamp.get().write(Some(Instant::now()));
-        }
-
-        self.file_access_sync.store(false, Ordering::Release);
         self.write_ev(Event::Start);
-
         self.active.store(true, Ordering::SeqCst);
     }
 
@@ -60,65 +57,31 @@ impl TracingAlloc {
     }
 
     pub fn set_file(&self, file: File) -> Option<File> {
-        // Wait until the file is no longer being changed.
-        while self
-            .file_access_sync
-            .compare_and_swap(false, true, Ordering::Relaxed)
-            != false
-        {}
-        std::sync::atomic::fence(Ordering::Acquire);
-
-        let old_file = unsafe {
-            let fd_ptr = self.output_file.get();
-            fd_ptr.replace(Some(file))
-        };
-
-        self.file_access_sync.store(false, Ordering::Release);
-        old_file
+        let mut lock = OUTPUT_FILE.write().unwrap();
+        lock.output_file.replace(file)
     }
 
     pub fn clear_file(&self) -> Option<File> {
-        // Wait until the file is no longer being changed.
-        while self
-            .file_access_sync
-            .compare_and_swap(false, true, Ordering::Relaxed)
-            != false
-        {}
-        std::sync::atomic::fence(Ordering::Acquire);
-
-        let old_file = unsafe {
-            let fd_ptr = self.output_file.get();
-            fd_ptr.replace(None)
-        };
-
-        self.file_access_sync.store(false, Ordering::Release);
-        old_file
+        let mut lock = OUTPUT_FILE.write().unwrap();
+        lock.output_file.take()
     }
 
     fn write_ev(&self, ev: Event) {
-        // Wait until the file is no longer being changed.
-        while self
-            .file_access_sync
-            .compare_and_swap(false, true, Ordering::Relaxed)
-            != false
-        {}
-        std::sync::atomic::fence(Ordering::Acquire);
+        // Read is fine here as File is Sync.
+        let lock = OUTPUT_FILE.read().unwrap();
 
-        unsafe {
-            if let (Some(file), Some(ts)) = (&*self.output_file.get(), *self.timestamp.get()) {
-                let elapsed = ts.elapsed();
-                let (symbol, size) = match &ev {
-                    Event::Alloc { size, .. } => ('A', *size),
-                    Event::Free { size, .. } => ('F', *size),
-                    Event::Start => ('S', 0),
-                    Event::End => ('E', 0),
-                };
+        if let (Some(file), Some(ts)) = (lock.output_file.as_ref(), lock.timestamp) {
+            let elapsed = ts.elapsed();
+            let (symbol, size) = match &ev {
+                Event::Alloc { size, .. } => ('A', *size),
+                Event::Free { size, .. } => ('F', *size),
+                Event::Start => ('S', 0),
+                Event::End => ('E', 0),
+            };
 
-                writeln!(&*file, "{} {} {}", symbol, elapsed.as_nanos(), size).unwrap();
-            }
+            // Just eat the error so we don't get a panic during allocation.
+            let _ = writeln!(&*file, "{} {} {}", symbol, elapsed.as_nanos(), size);
         }
-
-        self.file_access_sync.store(false, Ordering::Release);
     }
 }
 
