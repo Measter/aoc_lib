@@ -28,6 +28,10 @@ pub(crate) struct Args {
     #[structopt(long = "p2")]
     /// File path for the part 2 memory trace
     part2_file: Option<String>,
+
+    #[structopt(long, default_value = "3.0")]
+    /// Benchmarking period to measure run time of parts.
+    bench_time: f64,
 }
 
 pub struct IsExample;

@@ -296,7 +296,10 @@ where
         alloc.disable_tracing();
     }
 
-    let total_runs = (3.0 / min_run.as_secs_f64()).ceil().max(10.0).min(10e6) as u32;
+    let total_runs = (args.bench_time / min_run.as_secs_f64())
+        .ceil()
+        .max(10.0)
+        .min(10e6) as u32;
 
     let mut total_time = Duration::default();
     let mut min_run = Duration::from_secs(u64::MAX);
