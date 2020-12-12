@@ -275,7 +275,7 @@ where
     println!("Running part {}...", id);
     let part_result = part(input).with_context(|| eyre!("Error running Part {}", id))?;
 
-    println!("Benching part {}...", id);
+    print!("Benching part {}", id);
     // Run a few times to get an estimate of how long it takes.
     let mut min_run = Duration::from_secs(u64::MAX);
 
@@ -289,17 +289,20 @@ where
         }
     }
 
+    let total_runs = (args.bench_time as f64 / min_run.as_secs_f64())
+        .ceil()
+        .max(10.0)
+        .min(10e6) as u32;
+
+    let bench_time = Duration::from_secs_f64(total_runs as f64 * min_run.as_secs_f64());
+    println!(" for {} seconds", bench_time.as_secs());
+
     if !args.no_mem {
         // Now the cache is warm, run with tracing.
         alloc.enable_tracing();
         let _ = part(input);
         alloc.disable_tracing();
     }
-
-    let total_runs = (args.bench_time / min_run.as_secs_f64())
-        .ceil()
-        .max(10.0)
-        .min(10e6) as u32;
 
     let mut total_time = Duration::default();
     let mut min_run = Duration::from_secs(u64::MAX);
