@@ -11,6 +11,15 @@ use std::marker::PhantomData;
 
 type PartFunction<Input, Output> = dyn Fn(Input) -> Result<Output>;
 
+#[derive(Copy, Clone, StructOpt)]
+pub(crate) enum OutputType {
+    /// Print a table of timings with a memory use graph (default)
+    Table,
+    #[structopt(name = "markdown")]
+    /// Print a markdown table
+    MarkDown,
+}
+
 #[derive(StructOpt)]
 pub(crate) struct Args {
     #[structopt(long)]
@@ -30,8 +39,12 @@ pub(crate) struct Args {
     part2_file: Option<String>,
 
     #[structopt(long, default_value = "3")]
-    /// Benchmarking period in seconds to measure run time of parts.
+    /// Benchmarking period in seconds to measure run time of parts
     bench_time: u32,
+
+    #[structopt(subcommand)]
+    /// The layout of the output
+    output: Option<OutputType>,
 }
 
 pub struct IsExample;
@@ -108,17 +121,14 @@ where
         return Ok(());
     }
 
-    let (part1_trace, part1_result) =
-        bench::benchmark(alloc, &args, args.part1_file.as_ref(), input, 1, part1)?;
-    let (part2_trace, part2_result) =
-        bench::benchmark(alloc, &args, args.part2_file.as_ref(), input, 2, part2)?;
+    let part1_result = bench::benchmark(alloc, &args, args.part1_file.as_ref(), input, 1, part1)?;
+    let part2_result = bench::benchmark(alloc, &args, args.part2_file.as_ref(), input, 2, part2)?;
 
     bench::print_results(
+        args.output.unwrap_or(OutputType::Table),
         name,
         &part1_result,
-        &part1_trace,
         &part2_result,
-        &part2_trace,
     )?;
 
     Ok(())
