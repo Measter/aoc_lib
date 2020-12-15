@@ -321,13 +321,31 @@ where
     Output1: Display,
     Output2: Display,
 {
+    let min_prec1 = get_precision(part1_result.runtime.min_run);
+    let mean_prec1 = get_precision(part1_result.runtime.mean_run);
+    let max_prec1 = get_precision(part1_result.runtime.max_run);
+    let total_runs1 = if part1_result.runtime.total_runs < 1000 {
+        part1_result.runtime.total_runs.to_string()
+    } else {
+        human_format::Formatter::new().format(part1_result.runtime.total_runs as f64)
+    };
+
+    let min_prec2 = get_precision(part2_result.runtime.min_run);
+    let mean_prec2 = get_precision(part2_result.runtime.mean_run);
+    let max_prec2 = get_precision(part2_result.runtime.max_run);
+    let total_runs2 = if part2_result.runtime.total_runs < 1000 {
+        part2_result.runtime.total_runs.to_string()
+    } else {
+        human_format::Formatter::new().format(part2_result.runtime.total_runs as f64)
+    };
+
     println!("## {}", name);
     println!("||Result|N. Runs|Min|Mean|Max|Peak Mem.");
     println!("|---|---|---|---|---|---|---|");
     println!(
-        "|Part 1|{}|{}|{:?}|{:?}|{:?}|{}|",
+        "|Part 1|{}|{}|{:.min_prec$?}|{:.mean_prec$?}|{:.max_prec$?}|{}|",
         part1_result.result,
-        part1_result.runtime.total_runs,
+        total_runs1,
         part1_result.runtime.min_run,
         part1_result.runtime.mean_run,
         part1_result.runtime.max_run,
@@ -335,12 +353,15 @@ where
             .memory
             .as_ref()
             .map(|f| ByteSize(f.max_memory as _).to_string())
-            .unwrap_or("N/A".to_owned())
+            .unwrap_or("N/A".to_owned()),
+        min_prec = min_prec1,
+        mean_prec = mean_prec1,
+        max_prec = max_prec1,
     );
     println!(
-        "|Part 2|{}|{}|{:?}|{:?}|{:?}|{}|",
+        "|Part 2|{}|{}|{:.min_prec$?}|{:.mean_prec$?}|{:.max_prec$?}|{}|",
         part2_result.result,
-        part2_result.runtime.total_runs,
+        total_runs2,
         part2_result.runtime.min_run,
         part2_result.runtime.mean_run,
         part2_result.runtime.max_run,
@@ -348,7 +369,10 @@ where
             .memory
             .as_ref()
             .map(|f| ByteSize(f.max_memory as _).to_string())
-            .unwrap_or("N/A".to_owned())
+            .unwrap_or("N/A".to_owned()),
+        min_prec = min_prec2,
+        mean_prec = mean_prec2,
+        max_prec = max_prec2,
     );
     Ok(())
 }
