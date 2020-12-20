@@ -1,6 +1,6 @@
 use std::{
     fmt::Display,
-    io::{Read, Seek, SeekFrom},
+    io::{BufWriter, Read, Seek, SeekFrom, Write},
     time::{Duration, Instant},
 };
 
@@ -429,13 +429,6 @@ where
     let bench_time = Duration::from_secs_f64(total_runs as f64 * min_run.as_secs_f64());
     println!(" for {} seconds", bench_time.as_secs());
 
-    if !args.no_mem {
-        // Now the cache is warm, run with tracing.
-        alloc.enable_tracing();
-        let _ = part(input);
-        alloc.disable_tracing();
-    }
-
     let mut total_time = Duration::default();
     let mut min_run = Duration::from_secs(u64::MAX);
     let mut max_run = Duration::default();
@@ -456,6 +449,13 @@ where
     }
 
     let mean_run = total_time / total_runs;
+
+    if !args.no_mem {
+        println!("Tracing memory for part {}", id);
+        alloc.enable_tracing();
+        let _ = part(input);
+        alloc.disable_tracing();
+    }
 
     Ok(BenchResult {
         result: part_result,
@@ -493,11 +493,15 @@ where
             tempfile::tempfile()?
         };
 
-        alloc.set_file(trace_file);
+        let writer = BufWriter::new(trace_file);
+        alloc.set_file(writer);
         let mut result = bench_function(alloc, args, part_id, input, part)?;
         let mut mem_trace = String::new();
 
-        let mut trace_file = alloc.clear_file().unwrap(); // Should get it back.
+        let mut trace_writer = alloc.clear_file().unwrap(); // Should get it back.
+        trace_writer.flush()?;
+
+        let mut trace_file = trace_writer.into_inner().unwrap();
         trace_file.seek(SeekFrom::Start(0))?;
         trace_file.read_to_string(&mut mem_trace)?;
 

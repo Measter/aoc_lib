@@ -1,10 +1,10 @@
 use once_cell::sync::Lazy;
-use std::sync::RwLock;
 use std::{
     alloc::{GlobalAlloc, System},
     fs::File,
-    io::Write,
+    io::{BufWriter, Write},
     sync::atomic::{AtomicBool, Ordering},
+    sync::Mutex,
     time::Instant,
 };
 
@@ -16,12 +16,12 @@ pub enum Event {
 }
 
 struct TraceData {
-    output_file: Option<File>,
+    output_file: Option<BufWriter<File>>,
     timestamp: Option<Instant>,
 }
 
-static OUTPUT_FILE: Lazy<RwLock<TraceData>> = Lazy::new(|| {
-    RwLock::new(TraceData {
+static OUTPUT_FILE: Lazy<Mutex<TraceData>> = Lazy::new(|| {
+    Mutex::new(TraceData {
         output_file: None,
         timestamp: None,
     })
@@ -43,7 +43,7 @@ impl TracingAlloc {
     }
 
     pub fn enable_tracing(&self) {
-        let mut lock = OUTPUT_FILE.write().unwrap();
+        let mut lock = OUTPUT_FILE.lock().unwrap();
         lock.timestamp = Some(Instant::now());
         std::mem::drop(lock); // Must drop the lock before writing the start event.
 
@@ -56,21 +56,20 @@ impl TracingAlloc {
         self.active.store(false, Ordering::SeqCst);
     }
 
-    pub fn set_file(&self, file: File) -> Option<File> {
-        let mut lock = OUTPUT_FILE.write().unwrap();
+    pub fn set_file(&self, file: BufWriter<File>) -> Option<BufWriter<File>> {
+        let mut lock = OUTPUT_FILE.lock().unwrap();
         lock.output_file.replace(file)
     }
 
-    pub fn clear_file(&self) -> Option<File> {
-        let mut lock = OUTPUT_FILE.write().unwrap();
+    pub fn clear_file(&self) -> Option<BufWriter<File>> {
+        let mut lock = OUTPUT_FILE.lock().unwrap();
         lock.output_file.take()
     }
 
     fn write_ev(&self, ev: Event) {
-        // Read is fine here as File is Sync.
-        let lock = OUTPUT_FILE.read().unwrap();
+        let mut lock = OUTPUT_FILE.lock().unwrap();
 
-        if let (Some(file), Some(ts)) = (lock.output_file.as_ref(), lock.timestamp) {
+        if let (Some(ts), Some(file)) = (lock.timestamp, lock.output_file.as_mut()) {
             let elapsed = ts.elapsed();
             let (symbol, size) = match &ev {
                 Event::Alloc { size, .. } => ('A', *size),
@@ -80,7 +79,7 @@ impl TracingAlloc {
             };
 
             // Just eat the error so we don't get a panic during allocation.
-            let _ = writeln!(&*file, "{} {} {}", symbol, elapsed.as_nanos(), size);
+            let _ = writeln!(file, "{} {} {}", symbol, elapsed.as_nanos(), size);
         }
     }
 }
