@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use color_eyre::eyre::{eyre, Context, Result};
 use structopt::StructOpt;
 
@@ -7,7 +5,8 @@ mod alloc;
 mod bench;
 pub mod parsers;
 pub use alloc::TracingAlloc;
-use std::marker::PhantomData;
+
+use std::fmt::Display;
 
 type PartFunction<Input, Output> = dyn Fn(Input) -> Result<Output>;
 
@@ -47,27 +46,51 @@ pub(crate) struct Args {
     output: Option<OutputType>,
 }
 
-pub struct IsExample;
-
-pub struct InputFile<IsExample> {
-    year: u16,
-    day: u8,
-    example_id: Option<(u8, u8)>,
-    is_example: PhantomData<IsExample>,
+pub struct ProblemInput;
+impl Display for ProblemInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("")
+    }
 }
 
-impl InputFile<()> {
-    pub fn example(self, part: u8, id: u8) -> InputFile<IsExample> {
+#[derive(Debug, Clone, Copy)]
+pub enum Example {
+    Parse,
+    Part1,
+    Part2,
+    Other(&'static str),
+}
+
+impl Display for Example {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Example::Parse => "parse",
+            Example::Part1 => "part1",
+            Example::Part2 => "part2",
+            Example::Other(s) => s,
+        };
+
+        f.write_str(output)
+    }
+}
+
+pub struct InputFile<T> {
+    year: u16,
+    day: u8,
+    example_id: Option<(Example, T)>,
+}
+
+impl InputFile<ProblemInput> {
+    pub fn example<T: Display>(self, part: Example, id: T) -> InputFile<T> {
         InputFile {
             year: self.year,
             day: self.day,
             example_id: Some((part, id)),
-            is_example: PhantomData,
         }
     }
 }
 
-impl<IsExample> InputFile<IsExample> {
+impl<T: Display> InputFile<T> {
     pub fn open(self) -> Result<String> {
         let path = if let Some((part, id)) = self.example_id {
             format!(
@@ -86,12 +109,11 @@ impl<IsExample> InputFile<IsExample> {
     }
 }
 
-pub fn input(year: u16, day: u8) -> InputFile<()> {
+pub fn input(year: u16, day: u8) -> InputFile<ProblemInput> {
     InputFile {
         year,
         day,
         example_id: None,
-        is_example: PhantomData,
     }
 }
 
