@@ -1,5 +1,4 @@
 use std::{
-    fmt::Display,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     time::{Duration, Instant},
 };
@@ -18,6 +17,7 @@ use tui::{
 
 use crate::{alloc::TracingAlloc, Args, OutputType, PartFunction};
 
+#[derive(Default)]
 struct RuntimeData {
     total_runs: u32,
     min_run: Duration,
@@ -25,16 +25,27 @@ struct RuntimeData {
     max_run: Duration,
 }
 
+#[derive(Default)]
 struct MemoryData {
     end_ts: u128,
     graph_points: Vec<(f64, f64)>,
     max_memory: usize,
 }
 
-pub struct BenchResult<T> {
-    result: T,
+#[derive(Default)]
+pub struct BenchResult {
+    pub(crate) name: &'static str,
     runtime: RuntimeData,
     memory: Option<MemoryData>,
+}
+
+impl BenchResult {
+    pub(crate) fn new(name: &'static str) -> BenchResult {
+        Self {
+            name,
+            ..Default::default()
+        }
+    }
 }
 
 fn get_data(trace_input: &str) -> MemoryData {
@@ -88,152 +99,100 @@ fn get_precision(val: Duration) -> usize {
     }
 }
 
-fn write_results_timing<'a, B: 'a, Output1, Output2>(
+fn write_results_timing<'a, B: 'a + Backend>(
     f: &mut Frame<'a, B>,
-    part1_result: &BenchResult<Output1>,
-    part2_result: &BenchResult<Output2>,
     chunk: Rect,
-) where
-    B: Backend,
-    Output1: Display,
-    Output2: Display,
-{
+    results: &[(String, BenchResult)],
+) {
     let headers = [" ", "Result", "N. Runs", "Min", "Mean", "Max"];
 
-    let min_prec = get_precision(part1_result.runtime.min_run);
-    let mean_prec = get_precision(part1_result.runtime.mean_run);
-    let max_prec = get_precision(part1_result.runtime.max_run);
-    let total_runs = if part1_result.runtime.total_runs < 1000 {
-        part1_result.runtime.total_runs.to_string()
-    } else {
-        human_format::Formatter::new().format(part1_result.runtime.total_runs as f64)
-    };
+    let output_results = results.iter().map(|(output, bench)| {
+        let min_prec = get_precision(bench.runtime.min_run);
+        let mean_prec = get_precision(bench.runtime.mean_run);
+        let max_prec = get_precision(bench.runtime.max_run);
+        let total_runs = if bench.runtime.total_runs < 1000 {
+            bench.runtime.total_runs.to_string()
+        } else {
+            human_format::Formatter::new().format(bench.runtime.total_runs as f64)
+        };
 
-    let part1_results = [
-        "Part 1".to_owned(),
-        part1_result.result.to_string(),
-        total_runs,
-        format!(
-            "{:.min_prec$?}",
-            part1_result.runtime.min_run,
-            min_prec = min_prec
-        ),
-        format!(
-            "{:.mean_prec$?}",
-            part1_result.runtime.mean_run,
-            mean_prec = mean_prec
-        ),
-        format!(
-            "{:.max_prec$?}",
-            part1_result.runtime.max_run,
-            max_prec = max_prec
-        ),
-    ];
+        Row::Data(
+            vec![
+                bench.name.to_owned(),
+                output.to_string(),
+                total_runs,
+                format!("{:.min_prec$?}", bench.runtime.min_run, min_prec = min_prec),
+                format!(
+                    "{:.mean_prec$?}",
+                    bench.runtime.mean_run,
+                    mean_prec = mean_prec
+                ),
+                format!("{:.max_prec$?}", bench.runtime.max_run, max_prec = max_prec),
+            ]
+            .into_iter(),
+        )
+    });
 
-    let min_prec = get_precision(part2_result.runtime.min_run);
-    let mean_prec = get_precision(part2_result.runtime.mean_run);
-    let max_prec = get_precision(part2_result.runtime.max_run);
-    let total_runs = if part2_result.runtime.total_runs < 1000 {
-        part2_result.runtime.total_runs.to_string()
-    } else {
-        human_format::Formatter::new().format(part2_result.runtime.total_runs as f64)
-    };
-
-    let part2_results = [
-        "Part 2".to_owned(),
-        part2_result.result.to_string(),
-        total_runs,
-        format!(
-            "{:.min_prec$?}",
-            part2_result.runtime.min_run,
-            min_prec = min_prec
-        ),
-        format!(
-            "{:.mean_prec$?}",
-            part2_result.runtime.mean_run,
-            mean_prec = mean_prec
-        ),
-        format!(
-            "{:.max_prec$?}",
-            part2_result.runtime.max_run,
-            max_prec = max_prec
-        ),
-    ];
-
-    let part_results = Table::new(
-        headers.iter(),
-        vec![
-            Row::Data(part1_results.iter()),
-            Row::Data(part2_results.iter()),
-        ]
-        .into_iter(),
-    )
-    .block(Block::default())
-    .widths(&[
-        Constraint::Length(8),
-        Constraint::Percentage(100),
-        Constraint::Length(12),
-        Constraint::Length(12),
-        Constraint::Length(12),
-        Constraint::Length(12),
-    ]);
+    let part_results = Table::new(headers.iter(), output_results)
+        .block(Block::default())
+        .widths(&[
+            Constraint::Length(8),
+            Constraint::Percentage(100),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Length(12),
+        ]);
     f.render_widget(part_results, chunk);
 }
 
 fn draw_memory_graph<'a, B: Backend + 'a>(
     f: &mut Frame<'a, B>,
-    part1_data: Option<&MemoryData>,
-    part2_data: Option<&MemoryData>,
     mut chunk: Rect,
+    results: &[(String, BenchResult)],
 ) {
-    let max_x = part1_data
-        .map(|d| d.end_ts)
-        .unwrap_or_default()
-        .max(part2_data.map(|d| d.end_ts).unwrap_or_default());
+    let max_x = results
+        .iter()
+        .filter_map(|(_, bench)| bench.memory.as_ref())
+        .map(|mem| mem.end_ts)
+        .max()
+        .unwrap_or_default();
     let end_ts = Duration::from_nanos(max_x as u64);
     let max_x = max_x as f64;
 
-    let max_y_p1 = part1_data
-        .and_then(|d| {
-            d.graph_points
+    let max_y = results
+        .iter()
+        .filter_map(|(_, bench)| bench.memory.as_ref())
+        .map(|mem| {
+            mem.graph_points
                 .iter()
                 .map(|(_, y)| *y)
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .max_by(|a, b| a.partial_cmp(b).unwrap()) // pesky floats...
         })
+        .max_by(|a, b| a.partial_cmp(b).unwrap()) // pesky floats...
+        .flatten()
         .unwrap_or(0.0);
 
-    let max_y_p2 = part2_data
-        .and_then(|d| {
-            d.graph_points
-                .iter()
-                .map(|(_, y)| *y)
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
+    let colors = [
+        Color::Cyan,
+        Color::LightYellow,
+        Color::LightRed,
+        Color::LightGreen,
+    ];
+
+    let datasets: Vec<_> = results
+        .iter()
+        .zip(colors.iter().cycle())
+        .flat_map(|((_, bench), color)| bench.memory.as_ref().map(|b| (bench.name, b, color)))
+        .map(|(name, bench, color)| {
+            Dataset::default()
+                .name(name)
+                .marker(symbols::Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(*color))
+                .data(&bench.graph_points)
         })
-        .unwrap_or(0.0);
-    let max_y = max_y_p1.max(max_y_p2);
-
-    let mut datasets = Vec::new();
-    if let Some(d) = part1_data {
-        datasets.push(
-            Dataset::default()
-                .name("Part 1")
-                .marker(symbols::Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(Color::Cyan))
-                .data(&d.graph_points),
-        );
-    }
-
-    if let Some(d) = part2_data {
-        datasets.push(
-            Dataset::default()
-                .name("Part 2")
-                .marker(symbols::Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(Color::LightYellow))
-                .data(&d.graph_points),
-        );
-    }
+        .collect();
 
     let chart_block = Block::default()
         .title(Span::styled(
@@ -264,15 +223,7 @@ fn draw_memory_graph<'a, B: Backend + 'a>(
     f.render_widget(chart, chunk);
 }
 
-fn print_results_table<Output1, Output2>(
-    name: &str,
-    part1_result: &BenchResult<Output1>,
-    part2_result: &BenchResult<Output2>,
-) -> Result<()>
-where
-    Output1: Display,
-    Output2: Display,
-{
+fn print_results_table(name: &str, results: &[(String, BenchResult)]) -> Result<()> {
     let stdout = std::io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
@@ -297,123 +248,78 @@ where
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
-            .constraints([Constraint::Length(5), Constraint::Percentage(100)])
+            .constraints([
+                Constraint::Length(3 + results.len() as u16),
+                Constraint::Percentage(100),
+            ])
             .split(outer_size);
 
-        write_results_timing(f, part1_result, part2_result, main_chunks[0]);
-        draw_memory_graph(
-            f,
-            part1_result.memory.as_ref(),
-            part2_result.memory.as_ref(),
-            main_chunks[1],
-        );
+        write_results_timing(f, main_chunks[0], results);
+        draw_memory_graph(f, main_chunks[1], results);
     })?;
 
     Ok(())
 }
 
-fn print_results_markdown<Output1, Output2>(
-    name: &str,
-    part1_result: &BenchResult<Output1>,
-    part2_result: &BenchResult<Output2>,
-) -> Result<()>
-where
-    Output1: Display,
-    Output2: Display,
-{
-    let min_prec1 = get_precision(part1_result.runtime.min_run);
-    let mean_prec1 = get_precision(part1_result.runtime.mean_run);
-    let max_prec1 = get_precision(part1_result.runtime.max_run);
-    let total_runs1 = if part1_result.runtime.total_runs < 1000 {
-        part1_result.runtime.total_runs.to_string()
-    } else {
-        human_format::Formatter::new().format(part1_result.runtime.total_runs as f64)
-    };
-
-    let min_prec2 = get_precision(part2_result.runtime.min_run);
-    let mean_prec2 = get_precision(part2_result.runtime.mean_run);
-    let max_prec2 = get_precision(part2_result.runtime.max_run);
-    let total_runs2 = if part2_result.runtime.total_runs < 1000 {
-        part2_result.runtime.total_runs.to_string()
-    } else {
-        human_format::Formatter::new().format(part2_result.runtime.total_runs as f64)
-    };
-
+fn print_results_markdown(name: &str, results: &[(String, BenchResult)]) -> Result<()> {
     println!("## {}", name);
     println!("||Result|N. Runs|Min|Mean|Max|Peak Mem.");
     println!("|---|---|---|---|---|---|---|");
-    println!(
-        "|Part 1|{}|{}|{:.min_prec$?}|{:.mean_prec$?}|{:.max_prec$?}|{}|",
-        part1_result.result,
-        total_runs1,
-        part1_result.runtime.min_run,
-        part1_result.runtime.mean_run,
-        part1_result.runtime.max_run,
-        part1_result
-            .memory
-            .as_ref()
-            .map(|f| ByteSize(f.max_memory as _).to_string())
-            .unwrap_or("N/A".to_owned()),
-        min_prec = min_prec1,
-        mean_prec = mean_prec1,
-        max_prec = max_prec1,
-    );
-    println!(
-        "|Part 2|{}|{}|{:.min_prec$?}|{:.mean_prec$?}|{:.max_prec$?}|{}|",
-        part2_result.result,
-        total_runs2,
-        part2_result.runtime.min_run,
-        part2_result.runtime.mean_run,
-        part2_result.runtime.max_run,
-        part2_result
-            .memory
-            .as_ref()
-            .map(|f| ByteSize(f.max_memory as _).to_string())
-            .unwrap_or("N/A".to_owned()),
-        min_prec = min_prec2,
-        mean_prec = mean_prec2,
-        max_prec = max_prec2,
-    );
+
+    for (part_output, result) in results {
+        let min_prec = get_precision(result.runtime.min_run);
+        let mean_prec = get_precision(result.runtime.mean_run);
+        let max_prec = get_precision(result.runtime.max_run);
+        let total_runs = if result.runtime.total_runs < 1000 {
+            result.runtime.total_runs.to_string()
+        } else {
+            human_format::Formatter::new().format(result.runtime.total_runs as f64)
+        };
+
+        println!(
+            "|{}|{}|{}|{:.min_prec$?}|{:.mean_prec$?}|{:.max_prec$?}|{}|",
+            name,
+            part_output,
+            total_runs,
+            result.runtime.min_run,
+            result.runtime.mean_run,
+            result.runtime.max_run,
+            result
+                .memory
+                .as_ref()
+                .map(|f| ByteSize(f.max_memory as _).to_string())
+                .unwrap_or("N/A".to_owned()),
+            min_prec = min_prec,
+            mean_prec = mean_prec,
+            max_prec = max_prec,
+        );
+    }
     Ok(())
 }
 
-pub(crate) fn print_results<Output1, Output2>(
+pub(crate) fn print_results(
     output_type: OutputType,
     name: &str,
-    part1_result: &BenchResult<Output1>,
-    part2_result: &BenchResult<Output2>,
-) -> Result<()>
-where
-    Output1: Display,
-    Output2: Display,
-{
+    results: &[(String, BenchResult)],
+) -> Result<()> {
     match output_type {
-        OutputType::Table => print_results_table(name, part1_result, part2_result),
-        OutputType::MarkDown => print_results_markdown(name, part1_result, part2_result),
+        OutputType::Table => print_results_table(name, results),
+        OutputType::MarkDown => print_results_markdown(name, results),
     }
 }
 
-fn bench_function<Input, Output>(
-    alloc: &TracingAlloc,
+fn bench_function_runtime<Output>(
     args: &Args,
-    id: u8,
-    input: Input,
-    part: &PartFunction<Input, Output>,
-) -> Result<BenchResult<Output>>
-where
-    Output: Display,
-    Input: Copy,
-{
-    println!("Running part {}...", id);
-    let part_result = part(input).with_context(|| eyre!("Error running Part {}", id))?;
-
-    print!("Benching part {}", id);
+    name: &str,
+    func: &PartFunction<Output>,
+) -> Result<RuntimeData> {
+    print!("Benching runtime of {}", name);
     // Run a few times to get an estimate of how long it takes.
     let mut min_run = Duration::from_secs(u64::MAX);
 
     for _ in 0..5 {
         let now = Instant::now();
-        let _ = part(input);
+        let _ = func();
         let time = now.elapsed();
 
         if time < min_run {
@@ -435,7 +341,7 @@ where
 
     for _ in 0..total_runs {
         let start = Instant::now();
-        let _ = part(input); // We'll just discard the result as we handled errors above.
+        let _ = func(); // We'll just discard the result as we handled errors above.
         let elapsed = start.elapsed();
 
         total_time += start.elapsed();
@@ -450,66 +356,60 @@ where
 
     let mean_run = total_time / total_runs;
 
-    if !args.no_mem {
-        println!("Tracing memory for part {}", id);
-        alloc.enable_tracing();
-        let _ = part(input);
-        alloc.disable_tracing();
-    }
-
-    Ok(BenchResult {
-        result: part_result,
-        runtime: RuntimeData {
-            total_runs,
-            min_run,
-            mean_run,
-            max_run,
-        },
-        memory: None,
+    Ok(RuntimeData {
+        total_runs,
+        min_run,
+        mean_run,
+        max_run,
     })
 }
 
-pub(crate) fn benchmark<Input, Output>(
+fn bench_function_memory<Output>(
+    alloc: &TracingAlloc,
+    name: &str,
+    func: &PartFunction<Output>,
+) -> Result<MemoryData> {
+    println!("Benching memory of {}", name);
+    let trace_file = tempfile::tempfile()?;
+
+    let writer = BufWriter::new(trace_file);
+    alloc.set_file(writer);
+
+    // No need to handle an error here, we did it earlier.
+    alloc.enable_tracing();
+    let _ = func();
+    alloc.disable_tracing();
+
+    let mut mem_trace = String::new();
+
+    let mut trace_writer = alloc.clear_file().unwrap(); // Should get it back.
+    trace_writer.flush()?;
+
+    let mut trace_file = trace_writer.into_inner().unwrap();
+    trace_file.seek(SeekFrom::Start(0))?;
+    trace_file.read_to_string(&mut mem_trace)?;
+
+    Ok(get_data(&mem_trace))
+}
+
+pub(crate) fn benchmark<Output>(
     alloc: &TracingAlloc,
     args: &Args,
-    file: Option<&String>,
-    input: Input,
-    part_id: u8,
-    part: &PartFunction<Input, Output>,
-) -> Result<BenchResult<Output>>
-where
-    Output: Display,
-    Input: Copy,
-{
-    if !args.no_mem {
-        let trace_file = if let Some(path) = file {
-            let mut fo = std::fs::OpenOptions::new();
-            fo.write(true)
-                .read(true)
-                .truncate(true)
-                .create(true)
-                .open(path)?
-        } else {
-            tempfile::tempfile()?
-        };
+    name: &'static str,
+    func: &PartFunction<Output>,
+) -> Result<BenchResult> {
+    let runtime = bench_function_runtime(args, name, func)
+        .with_context(|| eyre!("Error benchmarking runtime of {}", name))?;
 
-        let writer = BufWriter::new(trace_file);
-        alloc.set_file(writer);
-        let mut result = bench_function(alloc, args, part_id, input, part)?;
-        let mut mem_trace = String::new();
-
-        let mut trace_writer = alloc.clear_file().unwrap(); // Should get it back.
-        trace_writer.flush()?;
-
-        let mut trace_file = trace_writer.into_inner().unwrap();
-        trace_file.seek(SeekFrom::Start(0))?;
-        trace_file.read_to_string(&mut mem_trace)?;
-
-        result.memory = Some(get_data(&mem_trace));
-
-        Ok(result)
+    let memory = if !args.no_mem {
+        Some(bench_function_memory(alloc, name, func)?)
     } else {
-        let part1_result = bench_function(alloc, args, part_id, input, part)?;
-        Ok(part1_result)
-    }
+        None
+    };
+
+    Ok(BenchResult {
+        name,
+        runtime,
+        memory,
+    })
 }

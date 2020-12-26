@@ -1,14 +1,18 @@
 use color_eyre::eyre::{eyre, Context, Result};
+use once_cell::sync::Lazy;
 use structopt::StructOpt;
 
 mod alloc;
 mod bench;
+pub use bench::BenchResult;
 pub mod parsers;
 pub use alloc::TracingAlloc;
 
 use std::fmt::Display;
 
-type PartFunction<Input, Output> = dyn Fn(Input) -> Result<Output>;
+static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
+
+type PartFunction<'a, Output> = dyn Fn() -> Result<Output> + 'a;
 
 #[derive(Copy, Clone, StructOpt)]
 pub(crate) enum OutputType {
@@ -28,14 +32,6 @@ pub(crate) struct Args {
     #[structopt(long)]
     /// Skip memory benchmarking
     no_mem: bool,
-
-    #[structopt(long = "p1")]
-    /// File path for the part 1 memory trace
-    part1_file: Option<String>,
-
-    #[structopt(long = "p2")]
-    /// File path for the part 2 memory trace
-    part2_file: Option<String>,
 
     #[structopt(long, default_value = "3")]
     /// Benchmarking period in seconds to measure run time of parts
@@ -117,41 +113,32 @@ pub fn input(year: u16, day: u8) -> InputFile<ProblemInput> {
     }
 }
 
-pub fn run<Input, Output, Output2>(
+pub fn bench<Output>(
     alloc: &TracingAlloc,
-    name: &str,
-    input: Input,
-    part1: &PartFunction<Input, Output>,
-    part2: &PartFunction<Input, Output2>,
-) -> Result<()>
-where
-    Output: Display,
-    Output2: Display,
-    Input: Copy,
-{
-    let args = Args::from_args();
+    name: &'static str,
+    func: &PartFunction<Output>,
+) -> Result<(Output, BenchResult)> {
+    println!("Running {}...", name);
+    let res = func().with_context(|| eyre!("Error running {}", name))?;
 
-    if args.no_bench {
-        println!("{}", name);
+    let bench_res = if ARGS.no_bench {
+        BenchResult::new(name)
+    } else {
+        bench::benchmark(alloc, &ARGS, name, func)?
+    };
 
-        let p1_result = part1(input).with_context(|| eyre!("Error running Part 1"))?;
-        let p2_result = part2(input).with_context(|| eyre!("Error running Part 2"))?;
+    Ok((res, bench_res))
+}
 
-        println!("Part 1: {}", p1_result);
-        println!("Part 2: {}", p2_result);
-
-        return Ok(());
+pub fn display_results(name: &str, results: &[(String, BenchResult)]) -> Result<()> {
+    if ARGS.no_bench {
+        for (res, bench) in results.iter().filter(|(r, _)| !r.is_empty()) {
+            println!("{} Result: {}", bench.name, res);
+        }
+    } else if results.is_empty() {
+        println!("No results to display");
+    } else {
+        bench::print_results(ARGS.output.unwrap_or(OutputType::Table), name, results)?;
     }
-
-    let part1_result = bench::benchmark(alloc, &args, args.part1_file.as_ref(), input, 1, part1)?;
-    let part2_result = bench::benchmark(alloc, &args, args.part2_file.as_ref(), input, 2, part2)?;
-
-    bench::print_results(
-        args.output.unwrap_or(OutputType::Table),
-        name,
-        &part1_result,
-        &part2_result,
-    )?;
-
     Ok(())
 }
