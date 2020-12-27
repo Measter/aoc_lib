@@ -132,6 +132,7 @@ pub fn bench<Output>(
 
 pub fn display_results(name: &str, results: &[(&dyn Display, BenchResult)]) -> Result<()> {
     if ARGS.no_bench {
+        println!("{}", name);
         for (res, bench) in results.iter() {
             let output = format!("{}", res);
             if !output.is_empty() {
