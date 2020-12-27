@@ -99,12 +99,12 @@ fn get_precision(val: Duration) -> usize {
     }
 }
 
-fn write_results_timing<'a, B: 'a + Backend>(
+fn write_results_table<'a, B: 'a + Backend>(
     f: &mut Frame<'a, B>,
     chunk: Rect,
     results: &[(String, BenchResult)],
 ) {
-    let headers = [" ", "Result", "N. Runs", "Min", "Mean", "Max"];
+    let headers = [" ", "Result", "N. Runs", "Min", "Mean", "Max", "Max Mem."];
 
     let output_results = results.iter().map(|(output, bench)| {
         let min_prec = get_precision(bench.runtime.min_run);
@@ -115,6 +115,8 @@ fn write_results_timing<'a, B: 'a + Backend>(
         } else {
             human_format::Formatter::new().format(bench.runtime.total_runs as f64)
         };
+
+        let max_mem = bench.memory.as_ref().map(|m| m.max_memory).unwrap_or(0);
 
         Row::Data(
             vec![
@@ -128,6 +130,7 @@ fn write_results_timing<'a, B: 'a + Backend>(
                     mean_prec = mean_prec
                 ),
                 format!("{:.max_prec$?}", bench.runtime.max_run, max_prec = max_prec),
+                ByteSize(max_mem as _).to_string(),
             ]
             .into_iter(),
         )
@@ -138,6 +141,7 @@ fn write_results_timing<'a, B: 'a + Backend>(
         .widths(&[
             Constraint::Length(8),
             Constraint::Percentage(100),
+            Constraint::Length(12),
             Constraint::Length(12),
             Constraint::Length(12),
             Constraint::Length(12),
@@ -163,15 +167,9 @@ fn draw_memory_graph<'a, B: Backend + 'a>(
     let max_y = results
         .iter()
         .filter_map(|(_, bench)| bench.memory.as_ref())
-        .map(|mem| {
-            mem.graph_points
-                .iter()
-                .map(|(_, y)| *y)
-                .max_by(|a, b| a.partial_cmp(b).unwrap()) // pesky floats...
-        })
-        .max_by(|a, b| a.partial_cmp(b).unwrap()) // pesky floats...
-        .flatten()
-        .unwrap_or(0.0);
+        .map(|mem| mem.max_memory)
+        .max()
+        .unwrap_or(0) as f64;
 
     let colors = [
         Color::Cyan,
@@ -254,7 +252,7 @@ fn print_results_table(name: &str, results: &[(String, BenchResult)]) -> Result<
             ])
             .split(outer_size);
 
-        write_results_timing(f, main_chunks[0], results);
+        write_results_table(f, main_chunks[0], results);
         draw_memory_graph(f, main_chunks[1], results);
     })?;
 
