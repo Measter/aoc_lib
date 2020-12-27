@@ -130,10 +130,13 @@ pub fn bench<Output>(
     Ok((res, bench_res))
 }
 
-pub fn display_results(name: &str, results: &[(String, BenchResult)]) -> Result<()> {
+pub fn display_results(name: &str, results: &[(&dyn Display, BenchResult)]) -> Result<()> {
     if ARGS.no_bench {
-        for (res, bench) in results.iter().filter(|(r, _)| !r.is_empty()) {
-            eprintln!("{} Result: {}", bench.name, res);
+        for (res, bench) in results.iter() {
+            let output = format!("{}", res);
+            if !output.is_empty() {
+                eprintln!("{} Result: {}", bench.name, res);
+            }
         }
     } else if results.is_empty() {
         eprintln!("No results to display");

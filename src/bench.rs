@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     time::{Duration, Instant},
 };
@@ -102,7 +103,7 @@ fn get_precision(val: Duration) -> usize {
 fn write_results_table<'a, B: 'a + Backend>(
     f: &mut Frame<'a, B>,
     chunk: Rect,
-    results: &[(String, BenchResult)],
+    results: &[(&dyn Display, BenchResult)],
 ) {
     let headers = [" ", "Result", "N. Runs", "Min", "Mean", "Max", "Max Mem."];
 
@@ -156,7 +157,7 @@ fn write_results_table<'a, B: 'a + Backend>(
 fn draw_memory_graph<'a, B: Backend + 'a>(
     f: &mut Frame<'a, B>,
     mut chunk: Rect,
-    results: &[(String, BenchResult)],
+    results: &[(&dyn Display, BenchResult)],
 ) {
     let max_x = results
         .iter()
@@ -225,7 +226,7 @@ fn draw_memory_graph<'a, B: Backend + 'a>(
     f.render_widget(chart, chunk);
 }
 
-fn print_results_table(name: &str, results: &[(String, BenchResult)]) -> Result<()> {
+fn print_results_table(name: &str, results: &[(&dyn Display, BenchResult)]) -> Result<()> {
     let stdout = std::io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
@@ -263,7 +264,7 @@ fn print_results_table(name: &str, results: &[(String, BenchResult)]) -> Result<
     Ok(())
 }
 
-fn print_results_markdown(name: &str, results: &[(String, BenchResult)]) -> Result<()> {
+fn print_results_markdown(name: &str, results: &[(&dyn Display, BenchResult)]) -> Result<()> {
     println!("## {}", name);
     println!("||Result|N. Runs|Min|Mean|Max|Peak Mem.");
     println!("|---|---|---|---|---|---|---|");
@@ -304,7 +305,7 @@ fn print_results_markdown(name: &str, results: &[(String, BenchResult)]) -> Resu
 pub(crate) fn print_results(
     output_type: OutputType,
     name: &str,
-    results: &[(String, BenchResult)],
+    results: &[(&dyn Display, BenchResult)],
 ) -> Result<()> {
     match output_type {
         OutputType::Table => print_results_table(name, results),
