@@ -313,7 +313,7 @@ fn bench_function_runtime<Output>(
     name: &str,
     func: &PartFunction<Output>,
 ) -> Result<RuntimeData> {
-    print!("Benching runtime of {}", name);
+    eprint!("Benching runtime of {}", name);
     // Run a few times to get an estimate of how long it takes.
     let mut min_run = Duration::from_secs(u64::MAX);
 
@@ -333,7 +333,7 @@ fn bench_function_runtime<Output>(
         .min(10e6) as u32;
 
     let bench_time = Duration::from_secs_f64(total_runs as f64 * min_run.as_secs_f64());
-    println!(" for {} seconds", bench_time.as_secs());
+    eprintln!(" for {} seconds", bench_time.as_secs());
 
     let mut total_time = Duration::default();
     let mut min_run = Duration::from_secs(u64::MAX);
@@ -369,7 +369,7 @@ fn bench_function_memory<Output>(
     name: &str,
     func: &PartFunction<Output>,
 ) -> Result<MemoryData> {
-    println!("Benching memory of {}", name);
+    eprintln!("Benching memory of {}", name);
     let trace_file = tempfile::tempfile()?;
 
     let writer = BufWriter::new(trace_file);

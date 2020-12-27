@@ -118,7 +118,7 @@ pub fn bench<Output>(
     name: &'static str,
     func: &PartFunction<Output>,
 ) -> Result<(Output, BenchResult)> {
-    println!("Running {}...", name);
+    eprintln!("Running {}...", name);
     let res = func().with_context(|| eyre!("Error running {}", name))?;
 
     let bench_res = if ARGS.no_bench {
@@ -133,10 +133,10 @@ pub fn bench<Output>(
 pub fn display_results(name: &str, results: &[(String, BenchResult)]) -> Result<()> {
     if ARGS.no_bench {
         for (res, bench) in results.iter().filter(|(r, _)| !r.is_empty()) {
-            println!("{} Result: {}", bench.name, res);
+            eprintln!("{} Result: {}", bench.name, res);
         }
     } else if results.is_empty() {
-        println!("No results to display");
+        eprintln!("No results to display");
     } else {
         bench::print_results(ARGS.output.unwrap_or(OutputType::Table), name, results)?;
     }
