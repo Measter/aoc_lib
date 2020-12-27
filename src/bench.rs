@@ -278,7 +278,7 @@ fn print_results_markdown(name: &str, results: &[(String, BenchResult)]) -> Resu
 
         println!(
             "|{}|{}|{}|{:.min_prec$?}|{:.mean_prec$?}|{:.max_prec$?}|{}|",
-            name,
+            result.name,
             part_output,
             total_runs,
             result.runtime.min_run,
@@ -294,6 +294,8 @@ fn print_results_markdown(name: &str, results: &[(String, BenchResult)]) -> Resu
             max_prec = max_prec,
         );
     }
+
+    println!();
     Ok(())
 }
 
