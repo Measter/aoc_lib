@@ -136,17 +136,20 @@ fn write_results_table<'a, B: 'a + Backend>(
         )
     });
 
+    let name_width = results.iter().map(|(_, r)| r.name.len()).max().unwrap() as _;
+    let sizes = [
+        Constraint::Length(name_width),
+        Constraint::Percentage(100),
+        Constraint::Length(12),
+        Constraint::Length(12),
+        Constraint::Length(12),
+        Constraint::Length(12),
+        Constraint::Length(12),
+    ];
+
     let part_results = Table::new(headers.iter(), output_results)
         .block(Block::default())
-        .widths(&[
-            Constraint::Length(8),
-            Constraint::Percentage(100),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-        ]);
+        .widths(&sizes);
     f.render_widget(part_results, chunk);
 }
 
@@ -172,10 +175,11 @@ fn draw_memory_graph<'a, B: Backend + 'a>(
         .unwrap_or(0) as f64;
 
     let colors = [
-        Color::Cyan,
+        Color::LightCyan,
         Color::LightYellow,
         Color::LightRed,
         Color::LightGreen,
+        Color::LightMagenta,
     ];
 
     let datasets: Vec<_> = results
