@@ -1,10 +1,10 @@
-use color_eyre::eyre::{eyre, Context, Result};
 use once_cell::sync::Lazy;
 use structopt::StructOpt;
+use thiserror::Error;
 
 mod alloc;
 mod bench;
-pub use bench::BenchResult;
+pub use bench::{BenchResult, MemoryBenchError};
 pub mod parsers;
 pub use alloc::TracingAlloc;
 
@@ -12,7 +12,16 @@ use std::fmt::Display;
 
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
-type PartFunction<'a, Output> = dyn Fn() -> Result<Output> + 'a;
+type PartFunction<'a, Output, OutputErr> = dyn Fn() -> Result<Output, OutputErr> + 'a;
+
+#[derive(Debug, Error)]
+pub enum BenchError<T: std::fmt::Debug> {
+    #[error("Error running {}: {:?}", .1, .0)]
+    FunctionError(T, &'static str),
+
+    #[error("Error performing memory benchmark {}: {}", .1, .0)]
+    MemoryBenchError(#[source] MemoryBenchError, &'static str),
+}
 
 #[derive(Copy, Clone, StructOpt)]
 pub(crate) enum OutputType {
@@ -21,6 +30,14 @@ pub(crate) enum OutputType {
     #[structopt(name = "markdown")]
     /// Print a markdown table
     MarkDown,
+}
+
+#[derive(Debug, Error)]
+#[error("Error opening input file '{}': {:?}", .name, .inner)]
+pub struct InputFileError {
+    #[source]
+    pub inner: std::io::Error,
+    pub name: String,
 }
 
 #[derive(StructOpt)]
@@ -87,7 +104,7 @@ impl InputFile<ProblemInput> {
 }
 
 impl<T: Display> InputFile<T> {
-    pub fn open(self) -> Result<String> {
+    pub fn open(self) -> Result<String, InputFileError> {
         let path = if let Some((part, id)) = self.example_id {
             format!(
                 "./example_inputs/aoc_{:02}{:02}_{}-{}.txt",
@@ -100,8 +117,10 @@ impl<T: Display> InputFile<T> {
             format!("./inputs/aoc_{:02}{:02}.txt", self.year % 100, self.day)
         };
 
-        Ok(std::fs::read_to_string(&path)
-            .with_context(|| eyre!("Unable to open file: {}", path))?)
+        Ok(std::fs::read_to_string(&path).map_err(|e| InputFileError {
+            inner: e,
+            name: path,
+        })?)
     }
 }
 
@@ -113,24 +132,25 @@ pub fn input(year: u16, day: u8) -> InputFile<ProblemInput> {
     }
 }
 
-pub fn bench<Output>(
+pub fn bench<Output, OutputErr: std::fmt::Debug>(
     alloc: &TracingAlloc,
     name: &'static str,
-    func: &PartFunction<Output>,
-) -> Result<(Output, BenchResult)> {
+    func: &PartFunction<Output, OutputErr>,
+) -> Result<(Output, BenchResult), BenchError<OutputErr>> {
     eprintln!("Running {}...", name);
-    let res = func().with_context(|| eyre!("Error running {}", name))?;
+    let res = func().map_err(|e| BenchError::FunctionError(e, name))?;
 
     let bench_res = if ARGS.no_bench {
         BenchResult::new(name)
     } else {
-        bench::benchmark(alloc, &ARGS, name, func)?
+        bench::benchmark(alloc, &ARGS, name, func)
+            .map_err(|e| BenchError::MemoryBenchError(e, name))?
     };
 
     Ok((res, bench_res))
 }
 
-pub fn display_results(name: &str, results: &[(&dyn Display, BenchResult)]) -> Result<()> {
+pub fn display_results(name: &str, results: &[(&dyn Display, BenchResult)]) {
     if ARGS.no_bench {
         println!("{}", name);
         for (res, bench) in results.iter() {
@@ -142,7 +162,6 @@ pub fn display_results(name: &str, results: &[(&dyn Display, BenchResult)]) -> R
     } else if results.is_empty() {
         eprintln!("No results to display");
     } else {
-        bench::print_results(ARGS.output.unwrap_or(OutputType::Table), name, results)?;
+        bench::print_results(ARGS.output.unwrap_or(OutputType::Table), name, results);
     }
-    Ok(())
 }

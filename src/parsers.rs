@@ -1,12 +1,18 @@
-use color_eyre::eyre::{eyre, Result};
 use nom::{
     bytes::complete::{tag, take_while1},
     combinator::{map, opt},
     sequence::tuple,
     IResult,
 };
+use thiserror::Error;
 
 use std::{num::ParseIntError, ops::Neg, str::FromStr};
+
+#[derive(Debug, Error)]
+#[error("Delimiter `{}` not found", .delimeter)]
+pub struct DelimiterError<'delim> {
+    pub delimeter: &'delim str,
+}
 
 pub fn signed_number<F>(input: &str) -> IResult<&str, Result<F, ParseIntError>>
 where
@@ -30,12 +36,15 @@ where
     })(input)
 }
 
-pub fn split_pair<'a>(input: &'a str, delim: &str) -> Result<(&'a str, &'a str)> {
+pub fn split_pair<'input, 'delim>(
+    input: &'input str,
+    delim: &'delim str,
+) -> Result<(&'input str, &'input str), DelimiterError<'delim>> {
     let mut parts = input.splitn(2, delim);
 
     if let (Some(left), Some(right)) = (parts.next(), parts.next()) {
         Ok((left, right))
     } else {
-        Err(eyre!("Delimiter `{}` not found in `{}`", delim, input))
+        Err(DelimiterError { delimeter: delim })
     }
 }

@@ -5,7 +5,7 @@ use std::{
 };
 
 use bytesize::ByteSize;
-use color_eyre::eyre::{eyre, Context, Result};
+use thiserror::Error;
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout, Rect},
@@ -17,6 +17,14 @@ use tui::{
 };
 
 use crate::{alloc::TracingAlloc, Args, OutputType, PartFunction};
+
+#[derive(Debug, Error)]
+#[error("Error benching memory use: {:?}", .inner)]
+pub struct MemoryBenchError {
+    #[source]
+    #[from]
+    pub inner: std::io::Error,
+}
 
 #[derive(Default)]
 struct RuntimeData {
@@ -226,45 +234,45 @@ fn draw_memory_graph<'a, B: Backend + 'a>(
     f.render_widget(chart, chunk);
 }
 
-fn print_results_table(name: &str, results: &[(&dyn Display, BenchResult)]) -> Result<()> {
+fn print_results_table(name: &str, results: &[(&dyn Display, BenchResult)]) {
     let stdout = std::io::stdout();
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.clear()?;
+    let mut terminal = Terminal::new(backend).expect("Failed to init Terminal");
+    terminal.clear().expect("Failed to clear terminal");
 
-    terminal.draw(|f| {
-        let mut size = f.size();
-        size.height -= 1;
+    terminal
+        .draw(|f| {
+            let mut size = f.size();
+            size.height -= 1;
 
-        let block = Block::default()
-            .title(Span::styled(
-                name,
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray));
-        let outer_size = block.inner(size);
-        f.render_widget(block, size);
+            let block = Block::default()
+                .title(Span::styled(
+                    name,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            let outer_size = block.inner(size);
+            f.render_widget(block, size);
 
-        let main_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .margin(1)
-            .constraints([
-                Constraint::Length(3 + results.len() as u16),
-                Constraint::Percentage(100),
-            ])
-            .split(outer_size);
+            let main_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(1)
+                .constraints([
+                    Constraint::Length(3 + results.len() as u16),
+                    Constraint::Percentage(100),
+                ])
+                .split(outer_size);
 
-        write_results_table(f, main_chunks[0], results);
-        draw_memory_graph(f, main_chunks[1], results);
-    })?;
-
-    Ok(())
+            write_results_table(f, main_chunks[0], results);
+            draw_memory_graph(f, main_chunks[1], results);
+        })
+        .expect("Failed to draw to terminal");
 }
 
-fn print_results_markdown(name: &str, results: &[(&dyn Display, BenchResult)]) -> Result<()> {
+fn print_results_markdown(name: &str, results: &[(&dyn Display, BenchResult)]) {
     println!("## {}", name);
     println!("||Result|N. Runs|Min|Mean|Max|Peak Mem.");
     println!("|---|---|---|---|---|---|---|");
@@ -299,25 +307,24 @@ fn print_results_markdown(name: &str, results: &[(&dyn Display, BenchResult)]) -
     }
 
     println!();
-    Ok(())
 }
 
 pub(crate) fn print_results(
     output_type: OutputType,
     name: &str,
     results: &[(&dyn Display, BenchResult)],
-) -> Result<()> {
+) {
     match output_type {
         OutputType::Table => print_results_table(name, results),
         OutputType::MarkDown => print_results_markdown(name, results),
     }
 }
 
-fn bench_function_runtime<Output>(
+fn bench_function_runtime<Output, OutputErr>(
     args: &Args,
     name: &str,
-    func: &PartFunction<Output>,
-) -> Result<RuntimeData> {
+    func: &PartFunction<Output, OutputErr>,
+) -> RuntimeData {
     eprint!("Benching runtime of {}", name);
     // Run a few times to get an estimate of how long it takes.
     let mut min_run = Duration::from_secs(u64::MAX);
@@ -361,19 +368,19 @@ fn bench_function_runtime<Output>(
 
     let mean_run = total_time / total_runs;
 
-    Ok(RuntimeData {
+    RuntimeData {
         total_runs,
         min_run,
         mean_run,
         max_run,
-    })
+    }
 }
 
-fn bench_function_memory<Output>(
+fn bench_function_memory<Output, OutputErr>(
     alloc: &TracingAlloc,
     name: &str,
-    func: &PartFunction<Output>,
-) -> Result<MemoryData> {
+    func: &PartFunction<Output, OutputErr>,
+) -> Result<MemoryData, MemoryBenchError> {
     eprintln!("Benching memory of {}", name);
     let trace_file = tempfile::tempfile()?;
 
@@ -397,14 +404,13 @@ fn bench_function_memory<Output>(
     Ok(get_data(&mem_trace))
 }
 
-pub(crate) fn benchmark<Output>(
+pub(crate) fn benchmark<Output, OutputErr>(
     alloc: &TracingAlloc,
     args: &Args,
     name: &'static str,
-    func: &PartFunction<Output>,
-) -> Result<BenchResult> {
-    let runtime = bench_function_runtime(args, name, func)
-        .with_context(|| eyre!("Error benchmarking runtime of {}", name))?;
+    func: &PartFunction<Output, OutputErr>,
+) -> Result<BenchResult, MemoryBenchError> {
+    let runtime = bench_function_runtime(args, name, func);
 
     let memory = if !args.no_mem {
         Some(bench_function_memory(alloc, name, func)?)
