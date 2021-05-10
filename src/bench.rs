@@ -113,7 +113,9 @@ fn write_results_table<'a, B: 'a + Backend>(
     chunk: Rect,
     results: &[(&dyn Display, BenchResult)],
 ) {
-    let headers = [" ", "Result", "N. Runs", "Min", "Mean", "Max", "Max Mem."];
+    let headers = Row::new(vec![
+        " ", "Result", "N. Runs", "Min", "Mean", "Max", "Max Mem.",
+    ]);
 
     let output_results = results.iter().map(|(output, bench)| {
         let min_prec = get_precision(bench.runtime.min_run);
@@ -127,7 +129,7 @@ fn write_results_table<'a, B: 'a + Backend>(
 
         let max_mem = bench.memory.as_ref().map(|m| m.max_memory).unwrap_or(0);
 
-        Row::Data(
+        Row::new(
             vec![
                 bench.name.to_owned(),
                 output.to_string(),
@@ -156,7 +158,8 @@ fn write_results_table<'a, B: 'a + Backend>(
         Constraint::Length(12),
     ];
 
-    let part_results = Table::new(headers.iter(), output_results)
+    let part_results = Table::new(output_results)
+        .header(headers)
         .block(Block::default())
         .widths(&sizes);
     f.render_widget(part_results, chunk);
@@ -299,7 +302,7 @@ fn print_results_markdown(name: &str, results: &[(&dyn Display, BenchResult)]) {
                 .memory
                 .as_ref()
                 .map(|f| ByteSize(f.max_memory as _).to_string())
-                .unwrap_or("N/A".to_owned()),
+                .unwrap_or_else(|| "N/A".to_owned()),
             min_prec = min_prec,
             mean_prec = mean_prec,
             max_prec = max_prec,
@@ -389,8 +392,11 @@ fn bench_function_memory<Output, OutputErr>(
 
     // No need to handle an error here, we did it earlier.
     alloc.enable_tracing();
-    let _ = func();
+    // Don't discard here, or dropping the return value will be caught
+    // by the tracer.
+    let res = func();
     alloc.disable_tracing();
+    let _ = res;
 
     let mut mem_trace = String::new();
 

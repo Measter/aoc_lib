@@ -117,10 +117,10 @@ impl<T: Display> InputFile<T> {
             format!("./inputs/aoc_{:02}{:02}.txt", self.year % 100, self.day)
         };
 
-        Ok(std::fs::read_to_string(&path).map_err(|e| InputFileError {
+        std::fs::read_to_string(&path).map_err(|e| InputFileError {
             inner: e,
             name: path,
-        })?)
+        })
     }
 }
 
