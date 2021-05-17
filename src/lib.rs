@@ -4,6 +4,7 @@ use thiserror::Error;
 
 mod alloc;
 mod bench;
+pub mod misc;
 pub use bench::{BenchResult, MemoryBenchError};
 pub mod parsers;
 pub use alloc::TracingAlloc;
