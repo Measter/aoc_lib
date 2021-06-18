@@ -16,7 +16,7 @@ use tui::{
     Frame, Terminal,
 };
 
-use crate::{alloc::TracingAlloc, Args, OutputType, PartFunction};
+use crate::{alloc::TracingAlloc, Args, OutputType};
 
 #[derive(Debug, Error)]
 #[error("Error benching memory use: {:?}", .inner)]
@@ -326,7 +326,7 @@ pub(crate) fn print_results(
 fn bench_function_runtime<Output, OutputErr>(
     args: &Args,
     name: &str,
-    func: &PartFunction<Output, OutputErr>,
+    func: impl Fn() -> Result<Output, OutputErr>,
 ) -> RuntimeData {
     eprint!("Benching runtime of {}", name);
     // Run a few times to get an estimate of how long it takes.
@@ -382,7 +382,7 @@ fn bench_function_runtime<Output, OutputErr>(
 fn bench_function_memory<Output, OutputErr>(
     alloc: &TracingAlloc,
     name: &str,
-    func: &PartFunction<Output, OutputErr>,
+    func: impl Fn() -> Result<Output, OutputErr>,
 ) -> Result<MemoryData, MemoryBenchError> {
     eprintln!("Benching memory of {}", name);
     let trace_file = tempfile::tempfile()?;
@@ -414,12 +414,12 @@ pub(crate) fn benchmark<Output, OutputErr>(
     alloc: &TracingAlloc,
     args: &Args,
     name: &'static str,
-    func: &PartFunction<Output, OutputErr>,
+    func: impl Fn() -> Result<Output, OutputErr>,
 ) -> Result<BenchResult, MemoryBenchError> {
-    let runtime = bench_function_runtime(args, name, func);
+    let runtime = bench_function_runtime(args, name, &func);
 
     let memory = if !args.no_mem {
-        Some(bench_function_memory(alloc, name, func)?)
+        Some(bench_function_memory(alloc, name, &func)?)
     } else {
         None
     };

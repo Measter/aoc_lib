@@ -13,8 +13,6 @@ use std::fmt::Display;
 
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
-type PartFunction<'a, Output, OutputErr> = dyn Fn() -> Result<Output, OutputErr> + 'a;
-
 #[derive(Debug, Error)]
 pub enum BenchError<T: std::fmt::Debug> {
     #[error("Error running {}: {:?}", .1, .0)]
@@ -136,7 +134,7 @@ pub fn input(year: u16, day: u8) -> InputFile<ProblemInput> {
 pub fn bench<Output, OutputErr: std::fmt::Debug>(
     alloc: &TracingAlloc,
     name: &'static str,
-    func: &PartFunction<Output, OutputErr>,
+    func: impl Fn() -> Result<Output, OutputErr>,
 ) -> Result<(Output, BenchResult), BenchError<OutputErr>> {
     eprintln!("Running {}...", name);
     let res = func().map_err(|e| BenchError::FunctionError(e, name))?;
@@ -151,7 +149,7 @@ pub fn bench<Output, OutputErr: std::fmt::Debug>(
     Ok((res, bench_res))
 }
 
-pub fn display_results(name: &str, results: &[(&dyn Display, BenchResult)]) {
+pub fn display_results<const N: usize>(name: &str, results: [(&dyn Display, BenchResult); N]) {
     if ARGS.no_bench {
         println!("{}", name);
         for (res, bench) in results.iter() {
@@ -163,6 +161,6 @@ pub fn display_results(name: &str, results: &[(&dyn Display, BenchResult)]) {
     } else if results.is_empty() {
         eprintln!("No results to display");
     } else {
-        bench::print_results(ARGS.output.unwrap_or(OutputType::Table), name, results);
+        bench::print_results(ARGS.output.unwrap_or(OutputType::Table), name, &results);
     }
 }
