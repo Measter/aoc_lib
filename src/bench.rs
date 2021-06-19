@@ -1,22 +1,14 @@
 use std::{
     fmt::Display,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
+    sync::mpsc::Sender,
     time::{Duration, Instant},
 };
 
-use bytesize::ByteSize;
+use once_cell::sync::Lazy;
 use thiserror::Error;
-use tui::{
-    backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    symbols,
-    text::Span,
-    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Row, Table},
-    Frame, Terminal,
-};
 
-use crate::{alloc::TracingAlloc, Args, OutputType};
+use crate::{alloc::TracingAlloc, Args, BenchError};
 
 #[derive(Debug, Error)]
 #[error("Error benching memory use: {:?}", .inner)]
@@ -27,7 +19,7 @@ pub struct MemoryBenchError {
 }
 
 #[derive(Default)]
-struct RuntimeData {
+pub(crate) struct RuntimeData {
     total_runs: u32,
     min_run: Duration,
     mean_run: Duration,
@@ -35,26 +27,10 @@ struct RuntimeData {
 }
 
 #[derive(Default)]
-struct MemoryData {
+pub(crate) struct MemoryData {
     end_ts: u128,
     graph_points: Vec<(f64, f64)>,
     max_memory: usize,
-}
-
-#[derive(Default)]
-pub struct BenchResult {
-    pub(crate) name: &'static str,
-    runtime: RuntimeData,
-    memory: Option<MemoryData>,
-}
-
-impl BenchResult {
-    pub(crate) fn new(name: &'static str) -> BenchResult {
-        Self {
-            name,
-            ..Default::default()
-        }
-    }
 }
 
 fn get_data(trace_input: &str) -> MemoryData {
@@ -108,227 +84,10 @@ fn get_precision(val: Duration) -> usize {
     }
 }
 
-fn write_results_table<'a, B: 'a + Backend>(
-    f: &mut Frame<'a, B>,
-    chunk: Rect,
-    results: &[(&dyn Display, BenchResult)],
-) {
-    let headers = Row::new(vec![
-        " ", "Result", "N. Runs", "Min", "Mean", "Max", "Max Mem.",
-    ]);
-
-    let output_results = results.iter().map(|(output, bench)| {
-        let min_prec = get_precision(bench.runtime.min_run);
-        let mean_prec = get_precision(bench.runtime.mean_run);
-        let max_prec = get_precision(bench.runtime.max_run);
-        let total_runs = if bench.runtime.total_runs < 1000 {
-            bench.runtime.total_runs.to_string()
-        } else {
-            human_format::Formatter::new().format(bench.runtime.total_runs as f64)
-        };
-
-        let max_mem = bench.memory.as_ref().map(|m| m.max_memory).unwrap_or(0);
-
-        Row::new(
-            vec![
-                bench.name.to_owned(),
-                output.to_string(),
-                total_runs,
-                format!("{:.min_prec$?}", bench.runtime.min_run, min_prec = min_prec),
-                format!(
-                    "{:.mean_prec$?}",
-                    bench.runtime.mean_run,
-                    mean_prec = mean_prec
-                ),
-                format!("{:.max_prec$?}", bench.runtime.max_run, max_prec = max_prec),
-                ByteSize(max_mem as _).to_string(),
-            ]
-            .into_iter(),
-        )
-    });
-
-    let name_width = results.iter().map(|(_, r)| r.name.len()).max().unwrap() as _;
-    let sizes = [
-        Constraint::Length(name_width),
-        Constraint::Percentage(100),
-        Constraint::Length(12),
-        Constraint::Length(12),
-        Constraint::Length(12),
-        Constraint::Length(12),
-        Constraint::Length(12),
-    ];
-
-    let part_results = Table::new(output_results)
-        .header(headers)
-        .block(Block::default())
-        .widths(&sizes);
-    f.render_widget(part_results, chunk);
-}
-
-fn draw_memory_graph<'a, B: Backend + 'a>(
-    f: &mut Frame<'a, B>,
-    mut chunk: Rect,
-    results: &[(&dyn Display, BenchResult)],
-) {
-    let max_x = results
-        .iter()
-        .filter_map(|(_, bench)| bench.memory.as_ref())
-        .map(|mem| mem.end_ts)
-        .max()
-        .unwrap_or_default();
-    let end_ts = Duration::from_nanos(max_x as u64);
-    let max_x = max_x as f64;
-
-    let max_y = results
-        .iter()
-        .filter_map(|(_, bench)| bench.memory.as_ref())
-        .map(|mem| mem.max_memory)
-        .max()
-        .unwrap_or(0) as f64;
-
-    let colors = [
-        Color::LightCyan,
-        Color::LightYellow,
-        Color::LightRed,
-        Color::LightGreen,
-        Color::LightMagenta,
-    ];
-
-    let datasets: Vec<_> = results
-        .iter()
-        .zip(colors.iter().cycle())
-        .flat_map(|((_, bench), color)| bench.memory.as_ref().map(|b| (bench.name, b, color)))
-        .map(|(name, bench, color)| {
-            Dataset::default()
-                .name(name)
-                .marker(symbols::Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(*color))
-                .data(&bench.graph_points)
-        })
-        .collect();
-
-    let chart_block = Block::default()
-        .title(Span::styled(
-            "Memory Usage",
-            Style::default()
-                .fg(Color::Gray)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::TOP)
-        .border_style(Style::default().fg(Color::DarkGray));
-
-    let chart = Chart::new(datasets)
-        .block(chart_block)
-        .x_axis(Axis::default().bounds([0.0, max_x]).labels(vec![
-            Span::styled(0.to_string(), Style::default().fg(Color::Gray)),
-            Span::styled(format!("{:?}", end_ts), Style::default().fg(Color::Gray)),
-        ]))
-        .y_axis(Axis::default().bounds([0.0, max_y]).labels(vec![
-            Span::styled(ByteSize(0).to_string(), Style::default().fg(Color::Gray)),
-            Span::styled(
-                ByteSize(max_y as _).to_string(),
-                Style::default().fg(Color::Gray),
-            ),
-        ]))
-        .style(Style::default().fg(Color::DarkGray))
-        .hidden_legend_constraints((Constraint::Ratio(1, 1), Constraint::Ratio(1, 1)));
-    chunk.height += 1;
-    f.render_widget(chart, chunk);
-}
-
-fn print_results_table(name: &str, results: &[(&dyn Display, BenchResult)]) {
-    let stdout = std::io::stdout();
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend).expect("Failed to init Terminal");
-    terminal.clear().expect("Failed to clear terminal");
-
-    terminal
-        .draw(|f| {
-            let mut size = f.size();
-            size.height -= 1;
-
-            let block = Block::default()
-                .title(Span::styled(
-                    name,
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
-                ))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray));
-            let outer_size = block.inner(size);
-            f.render_widget(block, size);
-
-            let main_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(1)
-                .constraints([
-                    Constraint::Length(3 + results.len() as u16),
-                    Constraint::Percentage(100),
-                ])
-                .split(outer_size);
-
-            write_results_table(f, main_chunks[0], results);
-            draw_memory_graph(f, main_chunks[1], results);
-        })
-        .expect("Failed to draw to terminal");
-}
-
-fn print_results_markdown(name: &str, results: &[(&dyn Display, BenchResult)]) {
-    println!("## {}", name);
-    println!("||Result|N. Runs|Min|Mean|Max|Peak Mem.");
-    println!("|---|---|---|---|---|---|---|");
-
-    for (part_output, result) in results {
-        let min_prec = get_precision(result.runtime.min_run);
-        let mean_prec = get_precision(result.runtime.mean_run);
-        let max_prec = get_precision(result.runtime.max_run);
-        let total_runs = if result.runtime.total_runs < 1000 {
-            result.runtime.total_runs.to_string()
-        } else {
-            human_format::Formatter::new().format(result.runtime.total_runs as f64)
-        };
-
-        println!(
-            "|{}|{}|{}|{:.min_prec$?}|{:.mean_prec$?}|{:.max_prec$?}|{}|",
-            result.name,
-            part_output,
-            total_runs,
-            result.runtime.min_run,
-            result.runtime.mean_run,
-            result.runtime.max_run,
-            result
-                .memory
-                .as_ref()
-                .map(|f| ByteSize(f.max_memory as _).to_string())
-                .unwrap_or_else(|| "N/A".to_owned()),
-            min_prec = min_prec,
-            mean_prec = mean_prec,
-            max_prec = max_prec,
-        );
-    }
-
-    println!();
-}
-
-pub(crate) fn print_results(
-    output_type: OutputType,
-    name: &str,
-    results: &[(&dyn Display, BenchResult)],
-) {
-    match output_type {
-        OutputType::Table => print_results_table(name, results),
-        OutputType::MarkDown => print_results_markdown(name, results),
-    }
-}
-
 fn bench_function_runtime<Output, OutputErr>(
     args: &Args,
-    name: &str,
     func: impl Fn() -> Result<Output, OutputErr>,
 ) -> RuntimeData {
-    eprint!("Benching runtime of {}", name);
     // Run a few times to get an estimate of how long it takes.
     let mut min_run = Duration::from_secs(u64::MAX);
 
@@ -346,9 +105,6 @@ fn bench_function_runtime<Output, OutputErr>(
         .ceil()
         .max(10.0)
         .min(10e6) as u32;
-
-    let bench_time = Duration::from_secs_f64(total_runs as f64 * min_run.as_secs_f64());
-    eprintln!(" for {} seconds", bench_time.as_secs());
 
     let mut total_time = Duration::default();
     let mut min_run = Duration::from_secs(u64::MAX);
@@ -381,10 +137,8 @@ fn bench_function_runtime<Output, OutputErr>(
 
 fn bench_function_memory<Output, OutputErr>(
     alloc: &TracingAlloc,
-    name: &str,
     func: impl Fn() -> Result<Output, OutputErr>,
 ) -> Result<MemoryData, MemoryBenchError> {
-    eprintln!("Benching memory of {}", name);
     let trace_file = tempfile::tempfile()?;
 
     let writer = BufWriter::new(trace_file);
@@ -410,23 +164,87 @@ fn bench_function_memory<Output, OutputErr>(
     Ok(get_data(&mem_trace))
 }
 
-pub(crate) fn benchmark<Output, OutputErr>(
-    alloc: &TracingAlloc,
-    args: &Args,
-    name: &'static str,
-    func: impl Fn() -> Result<Output, OutputErr>,
-) -> Result<BenchResult, MemoryBenchError> {
-    let runtime = bench_function_runtime(args, name, &func);
+pub(crate) enum BenchEvent {
+    Answer {
+        answer: String,
+        day: usize,
+        part: usize,
+    },
+    Memory {
+        data: MemoryData,
+        day: usize,
+        part: usize,
+    },
+    Timing {
+        data: RuntimeData,
+        day: usize,
+        part: usize,
+    },
+    Error {
+        err: String,
+        day: usize,
+        part: usize,
+    },
+}
 
-    let memory = if !args.no_mem {
-        Some(bench_function_memory(alloc, name, &func)?)
-    } else {
-        None
-    };
+pub struct Bench {
+    alloc: &'static TracingAlloc,
+    day_id: usize,
+    part_id: usize,
+    chan: Sender<BenchEvent>,
+    args: &'static Lazy<Args>,
+}
 
-    Ok(BenchResult {
-        name,
-        runtime,
-        memory,
-    })
+impl Bench {
+    pub fn bench<T: Display, E: Display>(
+        self,
+        f: impl Fn() -> Result<T, E>,
+    ) -> Result<(), BenchError> {
+        match f() {
+            Ok(t) => self
+                .chan
+                .send(BenchEvent::Answer {
+                    answer: t.to_string(),
+                    day: self.day_id,
+                    part: self.part_id,
+                })
+                .map_err(|_| BenchError::ChannelError(self.day_id, self.part_id))?,
+            Err(e) => {
+                self.chan
+                    .send(BenchEvent::Error {
+                        err: e.to_string(),
+                        day: self.day_id,
+                        part: self.part_id,
+                    })
+                    .map_err(|_| BenchError::ChannelError(self.day_id, self.part_id))?;
+                return Ok(());
+            }
+        }
+
+        if !self.args.no_bench {
+            if !self.args.no_mem {
+                let data = bench_function_memory(self.alloc, &f)
+                    .map_err(|e| BenchError::MemoryBenchError(e, self.day_id, self.part_id))?;
+
+                self.chan
+                    .send(BenchEvent::Memory {
+                        data,
+                        day: self.day_id,
+                        part: self.part_id,
+                    })
+                    .map_err(|_| BenchError::ChannelError(self.day_id, self.part_id))?;
+            }
+
+            let data = bench_function_runtime(self.args, &f);
+            self.chan
+                .send(BenchEvent::Timing {
+                    data,
+                    day: self.day_id,
+                    part: self.part_id,
+                })
+                .map_err(|_| BenchError::ChannelError(self.day_id, self.part_id))?;
+        }
+
+        Ok(())
+    }
 }
