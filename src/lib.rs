@@ -23,7 +23,19 @@ pub enum BenchError {
 
     #[error("Error returning benchmark result for function {}", .0)]
     ChannelError(usize),
+
+    #[error("Error opening input file '{}': {:}", .name, .inner)]
+    InputFileError {
+        #[source]
+        inner: std::io::Error,
+        name: String,
+    },
+
+    #[error("{}", .0)]
+    UserError(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
+
+pub type BenchResult = Result<(), BenchError>;
 
 #[derive(Copy, Clone, StructOpt)]
 pub(crate) enum OutputType {
@@ -32,14 +44,6 @@ pub(crate) enum OutputType {
     #[structopt(name = "markdown")]
     /// Print a markdown table
     MarkDown,
-}
-
-#[derive(Debug, Error)]
-#[error("Error opening input file '{}': {:?}", .name, .inner)]
-pub struct InputFileError {
-    #[source]
-    pub inner: std::io::Error,
-    pub name: String,
 }
 
 #[derive(StructOpt)]
@@ -55,10 +59,9 @@ pub(crate) struct Args {
     #[structopt(long, default_value = "3")]
     /// Benchmarking period in seconds to measure run time of parts
     bench_time: u32,
-
-    #[structopt(subcommand)]
-    /// The layout of the output
-    output: Option<OutputType>,
+    // #[structopt(subcommand)]
+    // /// The layout of the output
+    // output: Option<OutputType>,
 }
 
 pub struct ProblemInput;
@@ -106,7 +109,7 @@ impl InputFile<ProblemInput> {
 }
 
 impl<T: Display> InputFile<T> {
-    pub fn open(self) -> Result<String, InputFileError> {
+    pub fn open(self) -> Result<String, BenchError> {
         let path = if let Some((part, id)) = self.example_id {
             format!(
                 "./example_inputs/aoc_{:02}{:02}_{}-{}.txt",
@@ -119,7 +122,7 @@ impl<T: Display> InputFile<T> {
             format!("./inputs/aoc_{:02}{:02}.txt", self.year % 100, self.day)
         };
 
-        std::fs::read_to_string(&path).map_err(|e| InputFileError {
+        std::fs::read_to_string(&path).map_err(|e| BenchError::InputFileError {
             inner: e,
             name: path,
         })
@@ -134,18 +137,20 @@ pub fn input(year: u16, day: u8) -> InputFile<ProblemInput> {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Day {
-    name: &'static str,
-    day: usize,
-    part_1: fn(Bench) -> Result<(), BenchError>,
-    part_2: Option<fn(Bench) -> Result<(), BenchError>>,
+    pub name: &'static str,
+    pub day: u8,
+    pub part_1: for<'a> fn(&'a str, Bench) -> Result<(), BenchError>,
+    pub part_2: Option<for<'a> fn(&'a str, Bench) -> Result<(), BenchError>>,
 }
 
 struct BenchedFunction {
-    id: usize,
-    name: &'static str,
-    day: usize,
+    // id: usize,
+    // name: &'static str,
+    // day: usize,
     answer: Option<String>,
+    error: Option<String>,
     timing_data: Option<RuntimeData>,
     memory_data: Option<MemoryData>,
     finished_spinner: ProgressStyle,
@@ -182,7 +187,7 @@ impl BenchedFunction {
     }
 
     fn error(&mut self, err: String) {
-        self.answer = Some(err);
+        self.error = Some(err);
         self.bar.set_style(self.error_spinner.clone());
         let msg = self.render();
         self.bar.set_message(msg);
@@ -193,31 +198,35 @@ impl BenchedFunction {
     }
 
     fn render(&mut self) -> String {
-        let ans = self.answer.as_deref().unwrap_or("");
-        let time = self
-            .timing_data
-            .as_ref()
-            .map(|td| {
-                let prec = get_precision(td.mean_run);
-                format!("{:.prec$?}", td.mean_run, prec = prec)
-            })
-            .unwrap_or_else(String::new);
-        let mem = self
-            .memory_data
-            .as_ref()
-            .map(|md| format!("{}", ByteSize(md.max_memory as u64)))
-            .unwrap_or_else(String::new);
+        if let Some(err) = self.error.as_deref() {
+            format!("{}", err)
+        } else {
+            let ans = self.answer.as_deref().unwrap_or("");
+            let time = self
+                .timing_data
+                .as_ref()
+                .map(|td| {
+                    let prec = get_precision(td.mean_run);
+                    format!("{:.prec$?}", td.mean_run, prec = prec)
+                })
+                .unwrap_or_else(String::new);
+            let mem = self
+                .memory_data
+                .as_ref()
+                .map(|md| format!("{}", ByteSize(md.max_memory as u64)))
+                .unwrap_or_else(String::new);
 
-        format!("{:<20} | {:<20} | {:<20}", ans, time, mem)
+            format!("{:<30} | {:<10} | {}", ans, time, mem)
+        }
     }
 }
 
-pub fn run(alloc: &'static TracingAlloc, year: usize, days: &[Day]) -> Result<(), BenchError> {
+pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), BenchError> {
     let (sender, receiver) = channel::<BenchEvent>();
 
     println!("Advent of Code {}", year);
-    println!("   Day | {:<20} | Time", "Answer");
-    println!("_______|_{:_<20}_|________", "");
+    println!("   Day | {:<30} | {:<10} | Max Mem.", "Answer", "Time");
+    println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
 
     let spinner_style = ProgressStyle::default_spinner()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
@@ -244,10 +253,11 @@ pub fn run(alloc: &'static TracingAlloc, year: usize, days: &[Day]) -> Result<()
             bar.enable_steady_tick(250);
 
             let p1f = BenchedFunction {
-                id,
-                day: day.day,
-                name: day.name,
+                // id,
+                // day: day.day,
+                // name: day.name,
                 answer: None,
+                error: None,
                 timing_data: None,
                 memory_data: None,
                 finished_spinner: finished_spinner.clone(),
@@ -264,15 +274,20 @@ pub fn run(alloc: &'static TracingAlloc, year: usize, days: &[Day]) -> Result<()
                 args: &ARGS,
             };
             let sender = sender.clone();
+            let input = input(year, day.day).open()?;
 
             rayon::spawn(move || {
-                if let Err(e) = f(bench) {
+                if let Err(e) = f(&input, bench) {
                     sender
                         .send(BenchEvent::Error {
                             err: e.to_string(),
                             id,
                         })
                         .expect("Unable to send error");
+
+                    sender
+                        .send(BenchEvent::Finish { id })
+                        .expect("Unable to send finish");
                 }
             });
 
@@ -283,12 +298,18 @@ pub fn run(alloc: &'static TracingAlloc, year: usize, days: &[Day]) -> Result<()
     // If we don't drop this thread's sender the handler thread will never stop.
     drop(sender);
 
+    let (time_sender, time_receiver) = channel::<Duration>();
     let handler_thread = thread::spawn(move || {
         for event in receiver.iter() {
             match event {
                 BenchEvent::Answer { answer, id } => benched_functions[id].answer(answer),
                 BenchEvent::Memory { data, id } => benched_functions[id].memory(data),
-                BenchEvent::Timing { data, id } => benched_functions[id].timing(data),
+                BenchEvent::Timing { data, id } => {
+                    time_sender
+                        .send(data.mean_run)
+                        .expect("Failed to send timing from handler thread");
+                    benched_functions[id].timing(data);
+                }
                 BenchEvent::Error { err, id } => benched_functions[id].error(err),
                 BenchEvent::Finish { id } => benched_functions[id].finish(),
             }
@@ -300,5 +321,40 @@ pub fn run(alloc: &'static TracingAlloc, year: usize, days: &[Day]) -> Result<()
         .join()
         .expect("Failed to join handler thread");
 
+    let total_time = time_receiver.iter().sum();
+    let prec = get_precision(total_time);
+    println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+    println!(
+        " Total Time: {:26} | {:.prec$?}",
+        "",
+        total_time,
+        prec = prec
+    );
+
     Ok(())
+}
+
+#[macro_export]
+macro_rules! day {
+    (day $id:literal: $name:literal
+        1: $p1:ident
+    ) => {
+        pub static DAY: $crate::Day = $crate::Day {
+            name: $name,
+            day: $id,
+            part_1: $p1,
+            part_2: None,
+        };
+    };
+    (day $id:literal: $name:literal
+        1: $p1:ident
+        2: $p2:ident
+    ) => {
+        pub static DAY: $crate::Day = $crate::Day {
+            name: $name,
+            day: $id,
+            part_1: $p1,
+            part_2: Some($p2),
+        };
+    };
 }
