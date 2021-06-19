@@ -165,32 +165,15 @@ fn bench_function_memory<Output, OutputErr>(
 }
 
 pub(crate) enum BenchEvent {
-    Answer {
-        answer: String,
-        day: usize,
-        part: usize,
-    },
-    Memory {
-        data: MemoryData,
-        day: usize,
-        part: usize,
-    },
-    Timing {
-        data: RuntimeData,
-        day: usize,
-        part: usize,
-    },
-    Error {
-        err: String,
-        day: usize,
-        part: usize,
-    },
+    Answer { answer: String, id: usize },
+    Memory { data: MemoryData, id: usize },
+    Timing { data: RuntimeData, id: usize },
+    Error { err: String, id: usize },
 }
 
 pub struct Bench {
     alloc: &'static TracingAlloc,
-    day_id: usize,
-    part_id: usize,
+    id: usize,
     chan: Sender<BenchEvent>,
     args: &'static Lazy<Args>,
 }
@@ -205,18 +188,16 @@ impl Bench {
                 .chan
                 .send(BenchEvent::Answer {
                     answer: t.to_string(),
-                    day: self.day_id,
-                    part: self.part_id,
+                    id: self.id,
                 })
-                .map_err(|_| BenchError::ChannelError(self.day_id, self.part_id))?,
+                .map_err(|_| BenchError::ChannelError(self.id))?,
             Err(e) => {
                 self.chan
                     .send(BenchEvent::Error {
                         err: e.to_string(),
-                        day: self.day_id,
-                        part: self.part_id,
+                        id: self.id,
                     })
-                    .map_err(|_| BenchError::ChannelError(self.day_id, self.part_id))?;
+                    .map_err(|_| BenchError::ChannelError(self.id))?;
                 return Ok(());
             }
         }
@@ -224,25 +205,17 @@ impl Bench {
         if !self.args.no_bench {
             if !self.args.no_mem {
                 let data = bench_function_memory(self.alloc, &f)
-                    .map_err(|e| BenchError::MemoryBenchError(e, self.day_id, self.part_id))?;
+                    .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
 
                 self.chan
-                    .send(BenchEvent::Memory {
-                        data,
-                        day: self.day_id,
-                        part: self.part_id,
-                    })
-                    .map_err(|_| BenchError::ChannelError(self.day_id, self.part_id))?;
+                    .send(BenchEvent::Memory { data, id: self.id })
+                    .map_err(|_| BenchError::ChannelError(self.id))?;
             }
 
             let data = bench_function_runtime(self.args, &f);
             self.chan
-                .send(BenchEvent::Timing {
-                    data,
-                    day: self.day_id,
-                    part: self.part_id,
-                })
-                .map_err(|_| BenchError::ChannelError(self.day_id, self.part_id))?;
+                .send(BenchEvent::Timing { data, id: self.id })
+                .map_err(|_| BenchError::ChannelError(self.id))?;
         }
 
         Ok(())
