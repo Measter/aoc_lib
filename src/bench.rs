@@ -20,17 +20,17 @@ pub struct MemoryBenchError {
 
 #[derive(Default)]
 pub(crate) struct RuntimeData {
-    total_runs: u32,
-    min_run: Duration,
-    mean_run: Duration,
-    max_run: Duration,
+    pub(crate) total_runs: u32,
+    pub(crate) min_run: Duration,
+    pub(crate) mean_run: Duration,
+    pub(crate) max_run: Duration,
 }
 
 #[derive(Default)]
 pub(crate) struct MemoryData {
-    end_ts: u128,
-    graph_points: Vec<(f64, f64)>,
-    max_memory: usize,
+    pub(crate) end_ts: u128,
+    pub(crate) graph_points: Vec<(f64, f64)>,
+    pub(crate) max_memory: usize,
 }
 
 fn get_data(trace_input: &str) -> MemoryData {
@@ -73,14 +73,6 @@ fn get_data(trace_input: &str) -> MemoryData {
         end_ts,
         graph_points: points,
         max_memory: max_bytes as usize,
-    }
-}
-
-fn get_precision(val: Duration) -> usize {
-    if val.as_nanos() < 1000 {
-        0
-    } else {
-        3
     }
 }
 
@@ -169,13 +161,14 @@ pub(crate) enum BenchEvent {
     Memory { data: MemoryData, id: usize },
     Timing { data: RuntimeData, id: usize },
     Error { err: String, id: usize },
+    Finish { id: usize },
 }
 
 pub struct Bench {
-    alloc: &'static TracingAlloc,
-    id: usize,
-    chan: Sender<BenchEvent>,
-    args: &'static Lazy<Args>,
+    pub(crate) alloc: &'static TracingAlloc,
+    pub(crate) id: usize,
+    pub(crate) chan: Sender<BenchEvent>,
+    pub(crate) args: &'static Lazy<Args>,
 }
 
 impl Bench {
@@ -217,6 +210,10 @@ impl Bench {
                 .send(BenchEvent::Timing { data, id: self.id })
                 .map_err(|_| BenchError::ChannelError(self.id))?;
         }
+
+        self.chan
+            .send(BenchEvent::Finish { id: self.id })
+            .map_err(|_| BenchError::ChannelError(self.id))?;
 
         Ok(())
     }
