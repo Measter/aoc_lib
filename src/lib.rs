@@ -1,3 +1,5 @@
+use bench::{MemoryData, RuntimeData};
+use indicatif::ProgressBar;
 use once_cell::sync::Lazy;
 use structopt::StructOpt;
 use thiserror::Error;
@@ -5,7 +7,7 @@ use thiserror::Error;
 mod alloc;
 mod bench;
 pub mod misc;
-pub use bench::{BenchResult, MemoryBenchError};
+pub use bench::{Bench, MemoryBenchError};
 pub mod parsers;
 pub use alloc::TracingAlloc;
 
@@ -14,12 +16,12 @@ use std::fmt::Display;
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
 #[derive(Debug, Error)]
-pub enum BenchError<T: std::fmt::Debug> {
-    #[error("Error running {}: {:?}", .1, .0)]
-    FunctionError(T, &'static str),
+pub enum BenchError {
+    #[error("Error performing memory benchmark function {}: {}", .1, .0)]
+    MemoryBenchError(#[source] MemoryBenchError, usize),
 
-    #[error("Error performing memory benchmark {}: {}", .1, .0)]
-    MemoryBenchError(#[source] MemoryBenchError, &'static str),
+    #[error("Error returning benchmark result for function {}", .0)]
+    ChannelError(usize),
 }
 
 #[derive(Copy, Clone, StructOpt)]
@@ -131,36 +133,23 @@ pub fn input(year: u16, day: u8) -> InputFile<ProblemInput> {
     }
 }
 
-pub fn bench<Output, OutputErr: std::fmt::Debug>(
-    alloc: &TracingAlloc,
+pub struct Day {
     name: &'static str,
-    func: impl Fn() -> Result<Output, OutputErr>,
-) -> Result<(Output, BenchResult), BenchError<OutputErr>> {
-    eprintln!("Running {}...", name);
-    let res = func().map_err(|e| BenchError::FunctionError(e, name))?;
-
-    let bench_res = if ARGS.no_bench {
-        BenchResult::new(name)
-    } else {
-        bench::benchmark(alloc, &ARGS, name, func)
-            .map_err(|e| BenchError::MemoryBenchError(e, name))?
-    };
-
-    Ok((res, bench_res))
+    day: usize,
+    part_1: fn(Bench) -> Result<(), BenchError>,
+    part_2: Option<fn(Bench) -> Result<(), BenchError>>,
 }
 
-pub fn display_results<const N: usize>(name: &str, results: [(&dyn Display, BenchResult); N]) {
-    if ARGS.no_bench {
-        println!("{}", name);
-        for (res, bench) in results.iter() {
-            let output = format!("{}", res);
-            if !output.is_empty() {
-                eprintln!("{} Result: {}", bench.name, res);
-            }
-        }
-    } else if results.is_empty() {
-        eprintln!("No results to display");
-    } else {
-        bench::print_results(ARGS.output.unwrap_or(OutputType::Table), name, &results);
-    }
+struct BenchedFunction {
+    id: usize,
+    name: &'static str,
+    day: usize,
+    answer: Option<String>,
+    timing_data: Option<RuntimeData>,
+    memory_data: Option<MemoryData>,
+    bar: ProgressBar,
+}
+
+pub fn run(days: &[Day]) -> Result<(), BenchError> {
+    Ok(())
 }
