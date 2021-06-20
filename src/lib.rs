@@ -62,9 +62,13 @@ pub(crate) struct Args {
     #[structopt(long, default_value = "3")]
     /// Benchmarking period in seconds to measure run time of parts
     bench_time: u32,
+
     // #[structopt(subcommand)]
     // /// The layout of the output
     // output: Option<OutputType>,
+    #[structopt(long = "threads")]
+    /// How many worker threads to spawn for benchmarking [default: logical cores - 2, min: 1]
+    num_threads: Option<usize>,
 }
 
 pub struct ProblemInput;
@@ -315,7 +319,10 @@ pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), 
     // We should limit the number of threads in the pool. Having too many
     // results in them basically fighting for priority with the two update threads
     // negatively effecting the benchmark.
-    let num_threads = num_cpus::get().saturating_sub(2).max(1);
+    let num_threads = ARGS
+        .num_threads
+        .unwrap_or_else(|| num_cpus::get().saturating_sub(2))
+        .max(1);
 
     let pool = ThreadPoolBuilder::new()
         .num_threads(num_threads)
