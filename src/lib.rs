@@ -222,11 +222,86 @@ impl BenchedFunction {
     }
 }
 
+fn bench_days_chunk(
+    alloc: &'static TracingAlloc,
+    year: u16,
+    mut funcs: Vec<BenchedFunction>,
+    spinner_style: &ProgressStyle,
+    pool: &ThreadPool,
+) -> Result<Duration, BenchError> {
+    let (sender, receiver) = channel::<BenchEvent>();
+    let bars = MultiProgress::new();
+    bars.set_draw_target(ProgressDrawTarget::stdout());
+
+    for (id, func) in funcs.iter_mut().enumerate() {
+        let bar = bars.add(ProgressBar::new(10000));
+        bar.set_prefix(format!("{:2}.{}", func.day, func.day_function_id));
+        bar.set_style(spinner_style.clone());
+        bar.enable_steady_tick(250);
+
+        func.bar = Some(bar);
+
+        let bench = Bench {
+            alloc,
+            id,
+            chan: sender.clone(),
+            args: &ARGS,
+        };
+        let sender = sender.clone();
+        let input = input(year, func.day).open()?;
+        let f = func.function;
+
+        pool.spawn(move || {
+            if let Err(e) = f(&input, bench) {
+                sender
+                    .send(BenchEvent::Error {
+                        err: e.to_string(),
+                        id,
+                    })
+                    .expect("Unable to send error");
+
+                sender
+                    .send(BenchEvent::Finish { id })
+                    .expect("Unable to send finish");
+            }
+        });
+    }
+
+    // If we don't drop this thread's sender the handler thread will never stop.
+    drop(sender);
+
+    // We don't want to spawn the handler thread in the worker pool, because the benchmarking will
+    // hog the pool's threads, meaning the UI updates won't happen in a timely manner.
+    let (time_sender, time_receiver) = channel::<Duration>();
+    let handler_thread = thread::spawn(move || {
+        for event in receiver.iter() {
+            match event {
+                BenchEvent::Answer { answer, id } => funcs[id].answer(answer),
+                BenchEvent::Memory { data, id } => funcs[id].memory(data),
+                BenchEvent::Timing { data, id } => {
+                    time_sender
+                        .send(data.mean_run)
+                        .expect("Failed to send timing from handler thread");
+                    funcs[id].timing(data);
+                }
+                BenchEvent::Error { err, id } => funcs[id].error(err),
+                BenchEvent::Finish { id } => funcs[id].finish(),
+            }
+        }
+    });
+
+    bars.join().expect("Failed to join progress bars");
+    handler_thread
+        .join()
+        .expect("Failed to join handler thread");
+
+    Ok(time_receiver.iter().sum())
+}
+
 pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), BenchError> {
     // We should limit the number of threads in the pool. Having too many
     // results in them basically fighting for priority with the two update threads
     // negatively effecting the benchmark.
-
     let num_threads = num_cpus::get().saturating_sub(2).max(1);
 
     let pool = ThreadPoolBuilder::new()
