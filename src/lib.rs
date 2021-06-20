@@ -67,7 +67,7 @@ pub(crate) struct Args {
     // /// The layout of the output
     // output: Option<OutputType>,
     #[structopt(long = "threads")]
-    /// How many worker threads to spawn for benchmarking [default: logical cores - 2, min: 1]
+    /// How many worker threads to spawn for benchmarking [default: cores - 2, min: 1]
     num_threads: Option<usize>,
 }
 
@@ -321,7 +321,7 @@ pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), 
     // negatively effecting the benchmark.
     let num_threads = ARGS
         .num_threads
-        .unwrap_or_else(|| num_cpus::get().saturating_sub(2))
+        .unwrap_or_else(|| num_cpus::get_physical().saturating_sub(2))
         .max(1);
 
     let pool = ThreadPoolBuilder::new()
