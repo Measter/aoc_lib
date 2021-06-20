@@ -2,6 +2,7 @@ use bench::{BenchEvent, MemoryData, RuntimeData};
 use bytesize::ByteSize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
+use rayon::ThreadPoolBuilder;
 use structopt::StructOpt;
 use thiserror::Error;
 
@@ -199,7 +200,7 @@ impl BenchedFunction {
 
     fn render(&mut self) -> String {
         if let Some(err) = self.error.as_deref() {
-            format!("{}", err)
+            err.to_string()
         } else {
             let ans = self.answer.as_deref().unwrap_or("");
             let time = self
@@ -222,6 +223,17 @@ impl BenchedFunction {
 }
 
 pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), BenchError> {
+    // We should limit the number of threads in the pool. Having too many
+    // results in them basically fighting for priority with the two update threads
+    // negatively effecting the benchmark.
+
+    let num_threads = num_cpus::get().saturating_sub(2).max(1);
+
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+        .expect("Failed to build threadpool");
+
     let (sender, receiver) = channel::<BenchEvent>();
 
     println!("Advent of Code {}", year);
@@ -276,7 +288,7 @@ pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), 
             let sender = sender.clone();
             let input = input(year, day.day).open()?;
 
-            rayon::spawn(move || {
+            pool.spawn(move || {
                 if let Err(e) = f(&input, bench) {
                     sender
                         .send(BenchEvent::Error {

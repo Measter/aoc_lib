@@ -1,10 +1,8 @@
-use once_cell::sync::Lazy;
 use std::{
     alloc::{GlobalAlloc, System},
+    cell::{Cell, RefCell},
     fs::File,
     io::{BufWriter, Write},
-    sync::atomic::{AtomicBool, Ordering},
-    sync::Mutex,
     time::Instant,
 };
 
@@ -21,14 +19,12 @@ struct TraceData {
 }
 
 thread_local! {
-    static OUTPUT_FILE: Lazy<Mutex<TraceData>> = Lazy::new(|| {
-        Mutex::new(TraceData {
-            output_file: None,
-            timestamp: None,
-        })
+    static OUTPUT_FILE: RefCell<TraceData> = RefCell::new(TraceData {
+        output_file: None,
+        timestamp: None,
     });
 
-    static ACTIVE: AtomicBool = AtomicBool::new(false);
+    static ACTIVE: Cell<bool> = Cell::new(false);
 }
 
 pub struct TracingAlloc;
@@ -38,36 +34,36 @@ unsafe impl Sync for TracingAlloc {}
 impl TracingAlloc {
     pub fn enable_tracing(&self) {
         OUTPUT_FILE.with(|output_file| {
-            let mut lock = output_file.lock().unwrap();
+            let mut lock = output_file.borrow_mut();
             lock.timestamp = Some(Instant::now());
         });
 
         self.write_ev(Event::Start);
-        ACTIVE.with(|active| active.store(true, Ordering::SeqCst));
+        ACTIVE.with(|active| active.set(true));
     }
 
     pub fn disable_tracing(&self) {
         self.write_ev(Event::End);
-        ACTIVE.with(|active| active.store(false, Ordering::SeqCst));
+        ACTIVE.with(|active| active.set(false));
     }
 
     pub fn set_file(&self, file: BufWriter<File>) -> Option<BufWriter<File>> {
         OUTPUT_FILE.with(|output_file| {
-            let mut lock = output_file.lock().unwrap();
+            let mut lock = output_file.borrow_mut();
             lock.output_file.replace(file)
         })
     }
 
     pub fn clear_file(&self) -> Option<BufWriter<File>> {
         OUTPUT_FILE.with(|output_file| {
-            let mut lock = output_file.lock().unwrap();
+            let mut lock = output_file.borrow_mut();
             lock.output_file.take()
         })
     }
 
     fn write_ev(&self, ev: Event) {
         OUTPUT_FILE.with(|output_file| {
-            let mut lock = output_file.lock().unwrap();
+            let mut lock = output_file.borrow_mut();
 
             if let (Some(ts), Some(file)) = (lock.timestamp, lock.output_file.as_mut()) {
                 let elapsed = ts.elapsed();
@@ -90,7 +86,7 @@ unsafe impl GlobalAlloc for TracingAlloc {
         let res = System.alloc(layout);
 
         ACTIVE.with(|active| {
-            if active.load(Ordering::SeqCst) {
+            if active.get() {
                 self.write_ev(Event::Alloc {
                     addr: res as _,
                     size: layout.size(),
@@ -103,7 +99,7 @@ unsafe impl GlobalAlloc for TracingAlloc {
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
         ACTIVE.with(|active| {
-            if active.load(Ordering::SeqCst) {
+            if active.get() {
                 self.write_ev(Event::Free {
                     addr: ptr as _,
                     size: layout.size(),
