@@ -8,7 +8,19 @@ use std::{
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
-use crate::{alloc::TracingAlloc, Args, BenchError};
+use crate::{Args, BenchError, BenchResult, TracingAlloc};
+
+pub mod simple;
+
+pub type Function = for<'a> fn(&'a str, Bench) -> BenchResult;
+
+pub fn get_precision(val: Duration) -> usize {
+    if val.as_nanos() < 1000 {
+        0
+    } else {
+        3
+    }
+}
 
 #[derive(Debug, Error)]
 #[error("Error benching memory use: {:?}", .inner)]
@@ -104,7 +116,7 @@ fn bench_function_runtime<Output, OutputErr>(
 
     for _ in 0..total_runs {
         let start = Instant::now();
-        let _ = func(); // We'll just discard the result as we handled errors above.
+        let _ = func(); // We'll just discard the result as we handled errors before calling this function.
         let elapsed = start.elapsed();
 
         total_time += start.elapsed();
@@ -195,21 +207,17 @@ impl Bench {
             }
         }
 
-        if !self.args.no_bench {
-            if !self.args.no_mem {
-                let data = bench_function_memory(self.alloc, &f)
-                    .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
+        let data = bench_function_memory(self.alloc, &f)
+            .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
 
-                self.chan
-                    .send(BenchEvent::Memory { data, id: self.id })
-                    .map_err(|_| BenchError::ChannelError(self.id))?;
-            }
+        self.chan
+            .send(BenchEvent::Memory { data, id: self.id })
+            .map_err(|_| BenchError::ChannelError(self.id))?;
 
-            let data = bench_function_runtime(self.args, &f);
-            self.chan
-                .send(BenchEvent::Timing { data, id: self.id })
-                .map_err(|_| BenchError::ChannelError(self.id))?;
-        }
+        let data = bench_function_runtime(self.args, &f);
+        self.chan
+            .send(BenchEvent::Timing { data, id: self.id })
+            .map_err(|_| BenchError::ChannelError(self.id))?;
 
         self.chan
             .send(BenchEvent::Finish { id: self.id })
