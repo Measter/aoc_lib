@@ -197,7 +197,6 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -
         .build()
         .expect("Failed to build threadpool");
 
-    println!("Advent of Code {}", year);
     println!("   Day | {:<30} | {:<10} | Max Mem.", "Answer", "Time");
     println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
 

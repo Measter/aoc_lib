@@ -8,7 +8,7 @@ use std::{
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
-use crate::{Args, BenchError, BenchResult, TracingAlloc};
+use crate::{Args, BenchError, BenchResult, RunType, TracingAlloc};
 
 pub mod simple;
 
@@ -205,6 +205,10 @@ impl Bench {
                     .map_err(|_| BenchError::ChannelError(self.id))?;
                 return Ok(());
             }
+        }
+
+        if self.args.run_type == RunType::Run {
+            return Ok(());
         }
 
         let data = bench_function_memory(self.alloc, &f)
