@@ -247,15 +247,17 @@ fn bench_days_chunk(
     pool: &ThreadPool,
 ) -> Result<Duration, BenchError> {
     let (sender, receiver) = channel::<BenchEvent>();
-    let bars = MultiProgress::new();
-    bars.set_draw_target(ProgressDrawTarget::stdout());
+    let multi_bars = MultiProgress::new();
+    multi_bars.set_draw_target(ProgressDrawTarget::stdout());
+
+    let mut bars = Vec::new();
 
     for (id, func) in funcs.iter_mut().enumerate() {
-        let bar = bars.add(ProgressBar::new(10000));
+        let bar = multi_bars.add(ProgressBar::new(10000));
         bar.set_prefix(format!("{:2}.{}", func.day, func.day_function_id));
         bar.set_style(spinner_style.clone());
-        bar.enable_steady_tick(250);
 
+        bars.push(bar.clone());
         func.bar = Some(bar);
 
         let bench = Bench {
@@ -284,6 +286,21 @@ fn bench_days_chunk(
         });
     }
 
+    // Using the built-in steady tick spawns a thread for each bar. We could have up to 50.
+    // Seems wasteful. Let's just spawn a single thread to tick them all instead.
+    let tick_thread = thread::spawn(move || loop {
+        let all_finished = bars.iter().fold(true, |all_finished, bar| {
+            bar.tick();
+            all_finished & bar.is_finished()
+        });
+
+        if all_finished {
+            break;
+        }
+
+        thread::sleep(Duration::from_millis(250));
+    });
+
     // If we don't drop this thread's sender the handler thread will never stop.
     drop(sender);
 
@@ -307,10 +324,11 @@ fn bench_days_chunk(
         }
     });
 
-    bars.join().expect("Failed to join progress bars");
+    multi_bars.join().expect("Failed to join progress bars");
     handler_thread
         .join()
         .expect("Failed to join handler thread");
+    tick_thread.join().expect("Failed to join tick thread");
 
     Ok(time_receiver.iter().sum())
 }
