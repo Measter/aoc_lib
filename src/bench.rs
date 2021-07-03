@@ -207,21 +207,19 @@ impl Bench {
             }
         }
 
-        if self.args.run_type == RunType::Run {
-            return Ok(());
+        if self.args.run_type != RunType::Run {
+            let data = bench_function_memory(self.alloc, &f)
+                .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
+
+            self.chan
+                .send(BenchEvent::Memory { data, id: self.id })
+                .map_err(|_| BenchError::ChannelError(self.id))?;
+
+            let data = bench_function_runtime(self.args, &f);
+            self.chan
+                .send(BenchEvent::Timing { data, id: self.id })
+                .map_err(|_| BenchError::ChannelError(self.id))?;
         }
-
-        let data = bench_function_memory(self.alloc, &f)
-            .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
-
-        self.chan
-            .send(BenchEvent::Memory { data, id: self.id })
-            .map_err(|_| BenchError::ChannelError(self.id))?;
-
-        let data = bench_function_runtime(self.args, &f);
-        self.chan
-            .send(BenchEvent::Timing { data, id: self.id })
-            .map_err(|_| BenchError::ChannelError(self.id))?;
 
         self.chan
             .send(BenchEvent::Finish { id: self.id })

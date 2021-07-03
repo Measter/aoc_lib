@@ -7,7 +7,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::{
     bench::{get_precision, Bench, BenchEvent, Function, MemoryData, RuntimeData},
-    input, BenchError, BenchResult, Day, TracingAlloc, ARGS,
+    input, BenchError, BenchResult, Day, RunType, TracingAlloc, ARGS,
 };
 
 struct BenchedFunction {
@@ -68,6 +68,8 @@ impl BenchedFunction {
     fn render(&self) -> String {
         if let Some(err) = self.error.as_deref() {
             err.to_string()
+        } else if ARGS.run_type == RunType::Run {
+            self.answer.as_deref().unwrap_or("").to_owned()
         } else {
             let ans = self.answer.as_deref().unwrap_or("");
             let time = self
@@ -183,6 +185,31 @@ fn bench_days_chunk(
     Ok(time_receiver.iter().sum())
 }
 
+fn print_header() {
+    if ARGS.run_type == RunType::Run {
+        println!("   Day | {:<30} ", "Answer");
+        println!("_______|_{0:_<30}", "");
+    } else {
+        println!("   Day | {:<30} | {:<10} | Max Mem.", "Answer", "Time");
+        println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+    }
+}
+
+fn print_footer(total_time: Duration) {
+    if ARGS.run_type == RunType::Simple {
+        let prec = get_precision(total_time);
+        println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+        println!(
+            " Total Time: {:26} | {:.prec$?}",
+            "",
+            total_time,
+            prec = prec
+        );
+    } else {
+        println!("_______|_{0:_<30}", "");
+    }
+}
+
 pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> BenchResult {
     // We should limit the number of threads in the pool. Having too many
     // results in them basically fighting for priority with the two update threads
@@ -197,8 +224,7 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -
         .build()
         .expect("Failed to build threadpool");
 
-    println!("   Day | {:<30} | {:<10} | Max Mem.", "Answer", "Time");
-    println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+    print_header();
 
     let spinner_style = ProgressStyle::default_spinner()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
@@ -255,14 +281,7 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -
         .map(|days_chunk| bench_days_chunk(alloc, year, days_chunk, &spinner_style, &pool))
         .try_fold(Duration::ZERO, |acc, a| a.map(|a| a + acc))?;
 
-    let prec = get_precision(total_time);
-    println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
-    println!(
-        " Total Time: {:26} | {:.prec$?}",
-        "",
-        total_time,
-        prec = prec
-    );
+    print_footer(total_time);
 
     Ok(())
 }

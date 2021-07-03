@@ -145,54 +145,10 @@ pub struct Day {
     pub part_2: Option<Function>,
 }
 
-fn basic_run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), BenchError> {
-    println!("   Day | {:<30} ", "Answer");
-    println!("_______|_{0:_<30}", "");
-
-    let (sender, receiver) = channel();
-
-    for day in days {
-        let parts = iter::once(day.part_1).chain(day.part_2).zip(1..);
-
-        for (f, i) in parts {
-            let name = style(format!("{:2}.{}", day.day, i));
-            let bench = Bench {
-                alloc,
-                id: 0,
-                chan: sender.clone(),
-                args: &ARGS,
-            };
-
-            let result = input(year, day.day)
-                .open()
-                .and_then(|input| f(&input, bench))
-                .and_then(|_| receiver.recv().map_err(|_| BenchError::ChannelError(0)));
-
-            match result {
-                Ok(BenchEvent::Answer { answer, .. }) => {
-                    println!("  {} | {}", name.green(), answer);
-                }
-                Ok(BenchEvent::Error { err, .. }) => {
-                    println!("  {} | {}", name.red(), err);
-                }
-                Err(err @ (BenchError::InputFileError { .. } | BenchError::UserError(..))) => {
-                    println!("  {} | {}", name.red(), err);
-                }
-                _ => unreachable!(),
-            }
-        }
-    }
-
-    Ok(())
-}
-
 pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), BenchError> {
-    let args = Args::from_args();
-
     println!("Advent of Code {}", year);
-    match args.run_type {
-        RunType::Run => basic_run(alloc, year, days),
-        RunType::Simple => run_simple_bench(alloc, year, days),
+    match ARGS.run_type {
+        RunType::Run | RunType::Simple => run_simple_bench(alloc, year, days),
         RunType::Detailed => todo!(),
     }
 }
