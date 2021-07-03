@@ -1,6 +1,5 @@
-use std::{fmt::Display, iter, sync::mpsc::channel};
+use std::fmt::Display;
 
-use console::style;
 use once_cell::sync::Lazy;
 use structopt::StructOpt;
 use thiserror::Error;
@@ -14,7 +13,7 @@ pub use alloc::TracingAlloc;
 pub use bench::Bench;
 use bench::{Function, MemoryBenchError};
 
-use crate::bench::{simple::run_simple_bench, BenchEvent};
+use crate::bench::simple::run_simple_bench;
 
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
