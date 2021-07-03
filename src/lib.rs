@@ -38,6 +38,14 @@ pub enum BenchError {
     UserError(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
+#[allow(non_snake_case)]
+pub fn UserError<E: Into<Box<dyn std::error::Error + Send + Sync>>>(e: E) -> BenchError {
+    BenchError::UserError(e.into())
+}
+
+#[derive(Debug, Error)]
+pub enum NoError {}
+
 #[derive(Copy, Clone, StructOpt, PartialEq, Eq)]
 pub(crate) enum RunType {
     /// Just runs the day's primary functions.
