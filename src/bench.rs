@@ -1,10 +1,11 @@
 use std::{
     fmt::Display,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
-    sync::mpsc::Sender,
+    panic::{catch_unwind, RefUnwindSafe, UnwindSafe},
     time::{Duration, Instant},
 };
 
+use crossbeam_channel::Sender;
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
@@ -186,44 +187,50 @@ pub struct Bench {
 impl Bench {
     pub fn bench<T: Display, E: Display>(
         self,
-        f: impl Fn() -> Result<T, E>,
+        f: impl Fn() -> Result<T, E> + UnwindSafe + RefUnwindSafe + Copy,
     ) -> Result<(), BenchError> {
-        match f() {
-            Ok(t) => self
-                .chan
-                .send(BenchEvent::Answer {
-                    answer: t.to_string(),
-                    id: self.id,
-                })
-                .map_err(|_| BenchError::ChannelError(self.id))?,
-            Err(e) => {
+        let did_panic = catch_unwind(f);
+        match did_panic {
+            Ok(Ok(t)) => {
+                self.chan
+                    .send(BenchEvent::Answer {
+                        answer: t.to_string(),
+                        id: self.id,
+                    })
+                    .map_err(|_| BenchError::ChannelError(self.id))?;
+
+                if self.args.run_type != RunType::Run {
+                    let data = bench_function_memory(self.alloc, f)
+                        .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
+
+                    self.chan
+                        .send(BenchEvent::Memory { data, id: self.id })
+                        .map_err(|_| BenchError::ChannelError(self.id))?;
+
+                    let data = bench_function_runtime(self.args, f);
+                    self.chan
+                        .send(BenchEvent::Timing { data, id: self.id })
+                        .map_err(|_| BenchError::ChannelError(self.id))?;
+                }
+            }
+            Ok(Err(e)) => {
                 self.chan
                     .send(BenchEvent::Error {
                         err: e.to_string(),
                         id: self.id,
                     })
                     .map_err(|_| BenchError::ChannelError(self.id))?;
-                return Ok(());
+            }
+
+            Err(_) => {
+                self.chan
+                    .send(BenchEvent::Error {
+                        err: "Benched function panicked".to_owned(),
+                        id: self.id,
+                    })
+                    .map_err(|_| BenchError::ChannelError(self.id))?;
             }
         }
-
-        if self.args.run_type != RunType::Run {
-            let data = bench_function_memory(self.alloc, &f)
-                .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
-
-            self.chan
-                .send(BenchEvent::Memory { data, id: self.id })
-                .map_err(|_| BenchError::ChannelError(self.id))?;
-
-            let data = bench_function_runtime(self.args, &f);
-            self.chan
-                .send(BenchEvent::Timing { data, id: self.id })
-                .map_err(|_| BenchError::ChannelError(self.id))?;
-        }
-
-        self.chan
-            .send(BenchEvent::Finish { id: self.id })
-            .map_err(|_| BenchError::ChannelError(self.id))?;
 
         Ok(())
     }

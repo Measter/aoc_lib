@@ -1,4 +1,4 @@
-use std::{iter, sync::mpsc::channel, thread, time::Duration};
+use std::{iter, panic::catch_unwind, thread, time::Duration};
 
 use bytesize::ByteSize;
 use console::Term;
@@ -98,7 +98,7 @@ fn bench_days_chunk(
     spinner_style: &ProgressStyle,
     pool: &ThreadPool,
 ) -> Result<Duration, BenchError> {
-    let (sender, receiver) = channel::<BenchEvent>();
+    let (sender, receiver) = crossbeam_channel::unbounded();
     let multi_bars = MultiProgress::new();
     multi_bars.set_draw_target(ProgressDrawTarget::stdout());
 
@@ -119,22 +119,46 @@ fn bench_days_chunk(
             args: &ARGS,
         };
         let sender = sender.clone();
-        let input = input(year, func.day).open()?;
+        let day = func.day;
         let f = func.function;
 
         pool.spawn(move || {
-            if let Err(e) = f(&input, bench) {
-                sender
-                    .send(BenchEvent::Error {
-                        err: e.to_string(),
-                        id,
-                    })
-                    .expect("Unable to send error");
-
-                sender
-                    .send(BenchEvent::Finish { id })
-                    .expect("Unable to send finish");
+            match input(year, day).open() {
+                Ok(input) => {
+                    let did_panic = catch_unwind(|| f(&input, bench));
+                    match did_panic {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(e)) => {
+                            sender
+                                .send(BenchEvent::Error {
+                                    err: e.to_string(),
+                                    id,
+                                })
+                                .expect("Unable to send error");
+                        }
+                        Err(_) => {
+                            sender
+                                .send(BenchEvent::Error {
+                                    err: "Bench setup panicked!".to_owned(),
+                                    id,
+                                })
+                                .expect("Unable to send error");
+                        }
+                    }
+                }
+                Err(e) => {
+                    sender
+                        .send(BenchEvent::Error {
+                            err: e.to_string(),
+                            id,
+                        })
+                        .expect("Unable to send error");
+                }
             }
+
+            sender
+                .send(BenchEvent::Finish { id })
+                .expect("Unable to send finish");
         });
     }
 
@@ -158,7 +182,7 @@ fn bench_days_chunk(
 
     // We don't want to spawn the handler thread in the worker pool, because the benchmarking will
     // hog the pool's threads, meaning the UI updates won't happen in a timely manner.
-    let (time_sender, time_receiver) = channel::<Duration>();
+    let (time_sender, time_receiver) = crossbeam_channel::unbounded();
     let handler_thread = thread::spawn(move || {
         for event in receiver.iter() {
             match event {
