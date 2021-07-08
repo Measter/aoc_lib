@@ -111,11 +111,12 @@ fn bench_days_chunk(
 ) -> Result<Duration, BenchError> {
     let (sender, receiver) = crossbeam_channel::unbounded();
     let multi_bars = MultiProgress::new();
+    multi_bars.set_move_cursor(true);
 
     let mut bars = Vec::new();
 
     for (id, func) in funcs.iter_mut().enumerate() {
-        let bar = multi_bars.add(ProgressBar::new(10000));
+        let bar = multi_bars.add(ProgressBar::new_spinner());
         bar.set_prefix(format!("{:2}.{}", func.day, func.day_function_id));
         bar.set_style(spinner_style.clone());
 
