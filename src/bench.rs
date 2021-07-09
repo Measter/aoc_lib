@@ -189,39 +189,45 @@ impl Bench {
         self,
         f: impl Fn() -> Result<T, E> + UnwindSafe + RefUnwindSafe + Copy,
     ) -> Result<(), BenchError> {
-        let did_panic = catch_unwind(f);
-        match did_panic {
-            Ok(Ok(t)) => {
-                self.chan
-                    .send(BenchEvent::Answer {
-                        answer: t.to_string(),
-                        id: self.id,
-                    })
-                    .map_err(|_| BenchError::ChannelError(self.id))?;
-
-                if self.args.run_type != RunType::Run {
-                    let data = bench_function_memory(self.alloc, f)
-                        .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
-
+        let did_panic = catch_unwind(|| -> Result<(), BenchError> {
+            match f() {
+                Ok(t) => {
                     self.chan
-                        .send(BenchEvent::Memory { data, id: self.id })
+                        .send(BenchEvent::Answer {
+                            answer: t.to_string(),
+                            id: self.id,
+                        })
                         .map_err(|_| BenchError::ChannelError(self.id))?;
 
-                    let data = bench_function_runtime(self.args, f);
+                    if self.args.run_type != RunType::Run {
+                        let data = bench_function_memory(self.alloc, f)
+                            .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
+
+                        self.chan
+                            .send(BenchEvent::Memory { data, id: self.id })
+                            .map_err(|_| BenchError::ChannelError(self.id))?;
+
+                        let data = bench_function_runtime(self.args, f);
+                        self.chan
+                            .send(BenchEvent::Timing { data, id: self.id })
+                            .map_err(|_| BenchError::ChannelError(self.id))?;
+                    }
+                }
+                Err(e) => {
                     self.chan
-                        .send(BenchEvent::Timing { data, id: self.id })
+                        .send(BenchEvent::Error {
+                            err: e.to_string(),
+                            id: self.id,
+                        })
                         .map_err(|_| BenchError::ChannelError(self.id))?;
                 }
             }
-            Ok(Err(e)) => {
-                self.chan
-                    .send(BenchEvent::Error {
-                        err: e.to_string(),
-                        id: self.id,
-                    })
-                    .map_err(|_| BenchError::ChannelError(self.id))?;
-            }
 
+            Ok(())
+        });
+
+        match did_panic {
+            Ok(r) => r,
             Err(_) => {
                 self.chan
                     .send(BenchEvent::Error {
@@ -229,9 +235,9 @@ impl Bench {
                         id: self.id,
                     })
                     .map_err(|_| BenchError::ChannelError(self.id))?;
+
+                Ok(())
             }
         }
-
-        Ok(())
     }
 }
