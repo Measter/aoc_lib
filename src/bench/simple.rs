@@ -178,7 +178,9 @@ fn bench_days_chunk(
     // Seems wasteful. Let's just spawn a single thread to tick them all instead.
     let tick_thread = thread::spawn(move || loop {
         let all_finished = bars.iter().fold(true, |all_finished, bar| {
-            bar.tick();
+            if !bar.is_finished() {
+                bar.tick();
+            }
             all_finished & bar.is_finished()
         });
 
