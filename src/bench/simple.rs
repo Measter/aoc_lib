@@ -1,6 +1,6 @@
 use std::{
     iter,
-    panic::catch_unwind,
+    panic::{catch_unwind, resume_unwind},
     sync::{Arc, Mutex},
     thread,
     time::Duration,
@@ -13,7 +13,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::{
     bench::{get_precision, Bench, BenchEvent, Function, MemoryData, RuntimeData},
-    input, BenchError, BenchResult, Day, RunType, TracingAlloc, ARGS,
+    input, BenchError, BenchResult, Day, TracingAlloc, ARGS,
 };
 
 struct BenchedFunction {
@@ -29,6 +29,7 @@ struct BenchedFunction {
     error_spinner: ProgressStyle,
     bar: Option<ProgressBar>,
     term_width: usize,
+    let_unwind: bool,
 }
 
 impl BenchedFunction {
@@ -74,7 +75,7 @@ impl BenchedFunction {
     }
 
     fn render(&self) -> String {
-        if self.is_error || ARGS.run_type == RunType::Run {
+        if self.is_error || ARGS.run_type.is_run_only() {
             // Keep the error within the width of the terminal.
             self.message
                 .char_indices()
@@ -122,12 +123,14 @@ fn bench_days_chunk(
 
         bars.push(bar.clone());
         func.bar = Some(bar);
+        let let_unwind = func.let_unwind;
 
         let bench = Bench {
             alloc,
             id,
             chan: sender.clone(),
             args: &ARGS,
+            let_unwind,
         };
         let sender = sender.clone();
         let day = func.day;
@@ -137,6 +140,7 @@ fn bench_days_chunk(
             match input(year, day).open() {
                 Ok(input) => {
                     let did_panic = catch_unwind(|| f(&input, bench));
+
                     match did_panic {
                         Ok(Ok(_)) => {}
                         Ok(Err(e)) => {
@@ -147,6 +151,9 @@ fn bench_days_chunk(
                                 })
                                 .expect("Unable to send error");
                         }
+                        // When running a single day, in run mode, let the panic continue.
+                        Err(e) if let_unwind => resume_unwind(e),
+                        // Otherwise, since we're handling the output of many functions so just eat it.
                         Err(_) => {
                             sender
                                 .send(BenchEvent::Error {
@@ -247,7 +254,7 @@ fn bench_days_chunk(
 }
 
 fn print_header() {
-    if ARGS.run_type == RunType::Run {
+    if ARGS.run_type.is_run_only() {
         println!("   Day | {:<30} ", "Answer");
         println!("_______|_{0:_<30}", "");
     } else {
@@ -257,7 +264,9 @@ fn print_header() {
 }
 
 fn print_footer(total_time: Duration) {
-    if ARGS.run_type == RunType::Simple {
+    if ARGS.run_type.is_run_only() {
+        println!("_______|_{0:_<30}", "");
+    } else {
         let prec = get_precision(total_time);
         println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
         println!(
@@ -266,12 +275,10 @@ fn print_footer(total_time: Duration) {
             total_time,
             prec = prec
         );
-    } else {
-        println!("_______|_{0:_<30}", "");
     }
 }
 
-pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> BenchResult {
+pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) -> BenchResult {
     // We should limit the number of threads in the pool. Having too many
     // results in them basically fighting for priority with the two update threads
     // negatively effecting the benchmark.
@@ -329,6 +336,7 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -
                 error_spinner: error_spinner.clone(),
                 bar: None,
                 term_width: cols as usize,
+                let_unwind: days.len() == 1 && ARGS.run_type.is_run_only(),
             };
 
             cur_chunk.push(p1f);

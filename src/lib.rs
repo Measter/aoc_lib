@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, num::ParseIntError};
 
 use once_cell::sync::Lazy;
 use structopt::StructOpt;
@@ -11,9 +11,7 @@ pub mod parsers;
 
 pub use alloc::TracingAlloc;
 pub use bench::Bench;
-use bench::{Function, MemoryBenchError};
-
-use crate::bench::simple::run_simple_bench;
+use bench::{simple::run_simple_bench, Function, MemoryBenchError};
 
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
@@ -36,6 +34,9 @@ pub enum BenchError {
 
     #[error("{}", .0)]
     UserError(#[source] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("Day {} not defined", .0)]
+    DaysFilterError(u8),
 }
 
 #[allow(non_snake_case)]
@@ -46,14 +47,38 @@ pub fn UserError<E: Into<Box<dyn std::error::Error + Send + Sync>>>(e: E) -> Ben
 #[derive(Debug, Error)]
 pub enum NoError {}
 
-#[derive(Copy, Clone, StructOpt, PartialEq, Eq)]
+// Getting an inexplicable compiler error if I just try let structopt handle a the
+// Option<Vec<u8>>, so I'm using this as a workaround.
+fn parse_days_list(src: &str) -> Result<u8, ParseIntError> {
+    src.parse()
+}
+
+#[derive(Clone, StructOpt, PartialEq, Eq)]
 pub(crate) enum RunType {
     /// Just runs the day's primary functions.
-    Run,
+    Run {
+        #[structopt(short, long, parse(try_from_str = parse_days_list))]
+        /// List of days to run [default: all]
+        days: Option<Vec<u8>>,
+    },
     /// Benchmarks the days' primary functions, and lists them in a simple format.
-    Simple,
+    Simple {
+        #[structopt(short, long, parse(try_from_str = parse_days_list))]
+        /// List of days to run [default: all]
+        days: Option<Vec<u8>>,
+    },
     /// Benchmarks all the days' functions, and provides a more detailed listing.
-    Detailed,
+    Detailed {
+        #[structopt(short, long, parse(try_from_str = parse_days_list))]
+        /// List of days to run [default: all]
+        days: Option<Vec<u8>>,
+    },
+}
+
+impl RunType {
+    pub(crate) fn is_run_only(&self) -> bool {
+        matches!(self, RunType::Run { .. })
+    }
 }
 
 #[derive(StructOpt)]
@@ -152,11 +177,33 @@ pub struct Day {
     pub part_2: Option<Function>,
 }
 
+fn get_days<'d>(days: &'d [Day], filter: Option<&[u8]>) -> Result<Vec<&'d Day>, BenchError> {
+    if let Some(filter) = filter {
+        let mut new_days = Vec::with_capacity(filter.len());
+
+        for &filter_day in filter {
+            let day = days
+                .iter()
+                .find(|d| d.day == filter_day)
+                .ok_or(BenchError::DaysFilterError(filter_day))?;
+            new_days.push(day);
+        }
+
+        new_days.sort_by_key(|d| d.day);
+        Ok(new_days)
+    } else {
+        Ok(days.iter().collect())
+    }
+}
+
 pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), BenchError> {
     println!("Advent of Code {}", year);
-    match ARGS.run_type {
-        RunType::Run | RunType::Simple => run_simple_bench(alloc, year, days),
-        RunType::Detailed => todo!(),
+    match &ARGS.run_type {
+        RunType::Run { days: days_filter } | RunType::Simple { days: days_filter } => {
+            let days = get_days(days, days_filter.as_deref())?;
+            run_simple_bench(alloc, year, &days)
+        }
+        RunType::Detailed { .. } => todo!(),
     }
 }
 

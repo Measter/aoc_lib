@@ -1,7 +1,7 @@
 use std::{
     fmt::Display,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
-    panic::{catch_unwind, RefUnwindSafe, UnwindSafe},
+    panic::{catch_unwind, resume_unwind, RefUnwindSafe, UnwindSafe},
     time::{Duration, Instant},
 };
 
@@ -9,7 +9,7 @@ use crossbeam_channel::Sender;
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
-use crate::{Args, BenchError, BenchResult, RunType, TracingAlloc};
+use crate::{Args, BenchError, BenchResult, TracingAlloc};
 
 pub mod simple;
 
@@ -182,6 +182,7 @@ pub struct Bench {
     pub(crate) id: usize,
     pub(crate) chan: Sender<BenchEvent>,
     pub(crate) args: &'static Lazy<Args>,
+    pub(crate) let_unwind: bool,
 }
 
 impl Bench {
@@ -199,7 +200,7 @@ impl Bench {
                         })
                         .map_err(|_| BenchError::ChannelError(self.id))?;
 
-                    if self.args.run_type != RunType::Run {
+                    if !self.args.run_type.is_run_only() {
                         let data = bench_function_memory(self.alloc, f)
                             .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
 
@@ -228,6 +229,8 @@ impl Bench {
 
         match did_panic {
             Ok(r) => r,
+            // If we're running a single day in run mode, let it unwind.
+            Err(e) if self.let_unwind => resume_unwind(e),
             Err(_) => {
                 self.chan
                     .send(BenchEvent::Error {
