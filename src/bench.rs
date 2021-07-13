@@ -1,7 +1,6 @@
 use std::{
     fmt::Display,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
-    panic::{catch_unwind, resume_unwind, RefUnwindSafe, UnwindSafe},
     time::{Duration, Instant},
 };
 
@@ -182,65 +181,46 @@ pub struct Bench {
     pub(crate) id: usize,
     pub(crate) chan: Sender<BenchEvent>,
     pub(crate) args: &'static Lazy<Args>,
-    pub(crate) let_unwind: bool,
 }
 
 impl Bench {
     pub fn bench<T: Display, E: Display>(
         self,
-        f: impl Fn() -> Result<T, E> + UnwindSafe + RefUnwindSafe + Copy,
+        f: impl Fn() -> Result<T, E> + Copy,
     ) -> Result<(), BenchError> {
-        let did_panic = catch_unwind(|| -> Result<(), BenchError> {
-            match f() {
-                Ok(t) => {
-                    self.chan
-                        .send(BenchEvent::Answer {
-                            answer: t.to_string(),
-                            id: self.id,
-                        })
-                        .map_err(|_| BenchError::ChannelError(self.id))?;
-
-                    if !self.args.run_type.is_run_only() {
-                        let data = bench_function_memory(self.alloc, f)
-                            .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
-
-                        self.chan
-                            .send(BenchEvent::Memory { data, id: self.id })
-                            .map_err(|_| BenchError::ChannelError(self.id))?;
-
-                        let data = bench_function_runtime(self.args, f);
-                        self.chan
-                            .send(BenchEvent::Timing { data, id: self.id })
-                            .map_err(|_| BenchError::ChannelError(self.id))?;
-                    }
-                }
-                Err(e) => {
-                    self.chan
-                        .send(BenchEvent::Error {
-                            err: e.to_string(),
-                            id: self.id,
-                        })
-                        .map_err(|_| BenchError::ChannelError(self.id))?;
-                }
-            }
-
-            Ok(())
-        });
-
-        match did_panic {
-            Ok(r) => r,
-            // If we're running a single day in run mode, let it unwind.
-            Err(e) if self.let_unwind => resume_unwind(e),
-            Err(_) => {
+        match f() {
+            Ok(t) => {
                 self.chan
-                    .send(BenchEvent::Error {
-                        err: "Benched function panicked".to_owned(),
+                    .send(BenchEvent::Answer {
+                        answer: t.to_string(),
                         id: self.id,
                     })
                     .map_err(|_| BenchError::ChannelError(self.id))?;
 
-                Ok(())
+                if !self.args.run_type.is_run_only() {
+                    let data = bench_function_memory(self.alloc, f)
+                        .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
+
+                    self.chan
+                        .send(BenchEvent::Memory { data, id: self.id })
+                        .map_err(|_| BenchError::ChannelError(self.id))?;
+
+                    let data = bench_function_runtime(self.args, f);
+                    self.chan
+                        .send(BenchEvent::Timing { data, id: self.id })
+                        .map_err(|_| BenchError::ChannelError(self.id))?;
+                }
+            }
+            Err(e) => {
+                self.chan
+                    .send(BenchEvent::Error {
+                        err: e.to_string(),
+                        id: self.id,
+                    })
+                    .map_err(|_| BenchError::ChannelError(self.id))?;
             }
         }
+
+        Ok(())
     }
 }

@@ -130,7 +130,6 @@ fn bench_days_chunk(
             id,
             chan: sender.clone(),
             args: &ARGS,
-            let_unwind,
         };
         let sender = sender.clone();
         let day = func.day;
@@ -157,7 +156,7 @@ fn bench_days_chunk(
                         Err(_) => {
                             sender
                                 .send(BenchEvent::Error {
-                                    err: "Bench setup panicked!".to_owned(),
+                                    err: "Function panicked!".to_owned(),
                                     id,
                                 })
                                 .expect("Unable to send error");
