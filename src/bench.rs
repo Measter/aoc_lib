@@ -13,14 +13,6 @@ pub mod simple;
 
 pub type Function = for<'a> fn(&'a str, Bench) -> BenchResult;
 
-pub fn get_precision(val: Duration) -> usize {
-    if val.as_nanos() < 1000 {
-        0
-    } else {
-        3
-    }
-}
-
 #[derive(Debug, Error)]
 #[error("Error benching memory use: {:?}", .inner)]
 pub struct MemoryBenchError {

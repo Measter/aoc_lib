@@ -1,6 +1,6 @@
 use std::{
     iter,
-    panic::{catch_unwind, resume_unwind},
+    panic::{self, catch_unwind, resume_unwind},
     sync::{Arc, Mutex},
     thread,
     time::Duration,
@@ -12,8 +12,9 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::{
-    bench::{get_precision, Bench, BenchEvent, Function, MemoryData, RuntimeData},
-    input, BenchError, BenchResult, Day, TracingAlloc, ARGS,
+    bench::{Bench, BenchEvent, Function, MemoryData, RuntimeData},
+    get_precision, input, print_footer, print_header, BenchError, BenchResult, Day, TracingAlloc,
+    ARGS,
 };
 
 struct BenchedFunction {
@@ -29,7 +30,6 @@ struct BenchedFunction {
     error_spinner: ProgressStyle,
     bar: Option<ProgressBar>,
     term_width: usize,
-    let_unwind: bool,
 }
 
 impl BenchedFunction {
@@ -109,12 +109,24 @@ fn bench_days_chunk(
     mut funcs: Vec<BenchedFunction>,
     spinner_style: &ProgressStyle,
     pool: &ThreadPool,
+    let_unwind: bool,
 ) -> Result<Duration, BenchError> {
     let (sender, receiver) = crossbeam_channel::unbounded();
     let multi_bars = MultiProgress::new();
     multi_bars.set_move_cursor(true);
 
     let mut bars = Vec::new();
+
+    // We want to prevent the usual printing logic from running if we're not unwinding,
+    // so that the output doesn't get messed up.
+    // We do need to be careful about other sources of panics while this is replaced.
+    let old_panic_hook = if !let_unwind {
+        let old_hook = panic::take_hook();
+        panic::set_hook(Box::new(|_| {})); // Just eat the panic.
+        Some(old_hook)
+    } else {
+        None
+    };
 
     for (id, func) in funcs.iter_mut().enumerate() {
         let bar = multi_bars.add(ProgressBar::new_spinner());
@@ -123,7 +135,6 @@ fn bench_days_chunk(
 
         bars.push(bar.clone());
         func.bar = Some(bar);
-        let let_unwind = func.let_unwind;
 
         let bench = Bench {
             alloc,
@@ -237,6 +248,11 @@ fn bench_days_chunk(
         .expect("Failed to join handler thread");
     tick_thread.join().expect("Failed to join tick thread");
 
+    // Now to restore the panic hook.
+    if let Some(hook) = old_panic_hook {
+        panic::set_hook(hook);
+    }
+
     // Now we've finished, to clear up a render bug when the parts finish rapidly
     // we'll re-render on stdout.
     let funcs = funcs.lock().unwrap();
@@ -251,31 +267,6 @@ fn bench_days_chunk(
     }
 
     Ok(time_receiver.iter().sum())
-}
-
-fn print_header() {
-    if ARGS.run_type.is_run_only() {
-        println!("   Day | {:<30} ", "Answer");
-        println!("_______|_{0:_<30}", "");
-    } else {
-        println!("   Day | {:<30} | {:<10} | Max Mem.", "Answer", "Time");
-        println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
-    }
-}
-
-fn print_footer(total_time: Duration) {
-    if ARGS.run_type.is_run_only() {
-        println!("_______|_{0:_<30}", "");
-    } else {
-        let prec = get_precision(total_time);
-        println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
-        println!(
-            " Total Time: {:26} | {:.prec$?}",
-            "",
-            total_time,
-            prec = prec
-        );
-    }
 }
 
 pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) -> BenchResult {
@@ -336,7 +327,6 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) 
                 error_spinner: error_spinner.clone(),
                 bar: None,
                 term_width: cols as usize,
-                let_unwind: days.len() == 1 && ARGS.run_type.is_run_only(),
             };
 
             cur_chunk.push(p1f);
@@ -346,9 +336,13 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) 
         benched_functions.push(cur_chunk);
     }
 
+    let let_unwind = days.len() == 1 && ARGS.run_type.is_run_only();
+
     let total_time = benched_functions
         .into_iter()
-        .map(|days_chunk| bench_days_chunk(alloc, year, days_chunk, &spinner_style, &pool))
+        .map(|days_chunk| {
+            bench_days_chunk(alloc, year, days_chunk, &spinner_style, &pool, let_unwind)
+        })
         .try_fold(Duration::ZERO, |acc, a| a.map(|a| a + acc))?;
 
     print_footer(total_time);

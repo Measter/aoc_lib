@@ -1,4 +1,4 @@
-use std::{fmt::Display, num::ParseIntError};
+use std::{fmt::Display, iter, num::ParseIntError, time::Duration};
 
 use once_cell::sync::Lazy;
 use structopt::StructOpt;
@@ -12,6 +12,8 @@ pub mod parsers;
 pub use alloc::TracingAlloc;
 pub use bench::Bench;
 use bench::{simple::run_simple_bench, Function, MemoryBenchError};
+
+use crate::bench::BenchEvent;
 
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
@@ -78,6 +80,14 @@ pub(crate) enum RunType {
 impl RunType {
     pub(crate) fn is_run_only(&self) -> bool {
         matches!(self, RunType::Run { .. })
+    }
+
+    fn days(&self) -> Option<&[u8]> {
+        match self {
+            RunType::Run { days } | RunType::Simple { days } | RunType::Detailed { days } => {
+                days.as_deref()
+            }
+        }
     }
 }
 
@@ -178,32 +188,102 @@ pub struct Day {
 }
 
 fn get_days<'d>(days: &'d [Day], filter: Option<&[u8]>) -> Result<Vec<&'d Day>, BenchError> {
-    if let Some(filter) = filter {
-        let mut new_days = Vec::with_capacity(filter.len());
+    match filter {
+        Some([]) | None => Ok(days.iter().collect()),
+        Some(filter) => {
+            let mut new_days = Vec::with_capacity(filter.len());
 
-        for &filter_day in filter {
-            let day = days
-                .iter()
-                .find(|d| d.day == filter_day)
-                .ok_or(BenchError::DaysFilterError(filter_day))?;
-            new_days.push(day);
+            for &filter_day in filter {
+                let day = days
+                    .iter()
+                    .find(|d| d.day == filter_day)
+                    .ok_or(BenchError::DaysFilterError(filter_day))?;
+                new_days.push(day);
+            }
+
+            new_days.sort_by_key(|d| d.day);
+            Ok(new_days)
         }
-
-        new_days.sort_by_key(|d| d.day);
-        Ok(new_days)
-    } else {
-        Ok(days.iter().collect())
     }
 }
 
+pub fn get_precision(val: Duration) -> usize {
+    if val.as_nanos() < 1000 {
+        0
+    } else {
+        3
+    }
+}
+
+fn print_header() {
+    if ARGS.run_type.is_run_only() {
+        println!("   Day | {:<30} ", "Answer");
+        println!("_______|_{0:_<30}", "");
+    } else {
+        println!("   Day | {:<30} | {:<10} | Max Mem.", "Answer", "Time");
+        println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+    }
+}
+
+fn print_footer(total_time: Duration) {
+    if ARGS.run_type.is_run_only() {
+        println!("_______|_{0:_<30}", "");
+    } else {
+        let prec = get_precision(total_time);
+        println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+        println!(
+            " Total Time: {:26} | {:.prec$?}",
+            "",
+            total_time,
+            prec = prec
+        );
+    }
+}
+
+// No need for all of the complex machinery just to run the two functions, given we want
+// panics to happen as normal.
+fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), BenchError> {
+    print_header();
+
+    let (sender, receiver) = crossbeam_channel::unbounded();
+
+    let parts = iter::once(day.part_1).chain(day.part_2).zip(1..);
+
+    for (part, id) in parts {
+        let dummy = Bench {
+            alloc,
+            id: 0,
+            chan: sender.clone(),
+            run_only: true,
+            bench_time: 0,
+        };
+
+        let input = input(year, day.day).open()?;
+        part(&input, dummy)?;
+
+        let message = match receiver.recv().expect("Failed to receive from channel") {
+            BenchEvent::Answer { answer: msg, .. } | BenchEvent::Error { err: msg, .. } => msg,
+            _ => unreachable!("Should only receive an Answer or Error"),
+        };
+
+        println!("  {:>2}.{} | {}", day.day, id, message);
+    }
+
+    print_footer(Duration::ZERO);
+
+    Ok(())
+}
+
 pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), BenchError> {
+    let days = get_days(days, ARGS.run_type.days())?;
+
     println!("Advent of Code {}", year);
-    match &ARGS.run_type {
-        RunType::Run { days: days_filter } | RunType::Simple { days: days_filter } => {
-            let days = get_days(days, days_filter.as_deref())?;
+    match (&ARGS.run_type, &*days) {
+        (RunType::Run { .. }, [day]) => run_single(alloc, year, day),
+        (RunType::Run { .. } | RunType::Simple { .. }, days) => {
             run_simple_bench(alloc, year, &days)
         }
-        RunType::Detailed { .. } => todo!(),
+        (RunType::Detailed { .. }, _) => todo!(),
     }
 }
 
