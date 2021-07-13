@@ -5,10 +5,9 @@ use std::{
 };
 
 use crossbeam_channel::Sender;
-use once_cell::sync::Lazy;
 use thiserror::Error;
 
-use crate::{Args, BenchError, BenchResult, TracingAlloc};
+use crate::{BenchError, BenchResult, TracingAlloc};
 
 pub mod simple;
 
@@ -89,7 +88,7 @@ fn get_data(trace_input: &str) -> MemoryData {
 }
 
 fn bench_function_runtime<Output, OutputErr>(
-    args: &Args,
+    bench_time: u32,
     func: impl Fn() -> Result<Output, OutputErr>,
 ) -> RuntimeData {
     // Run a few times to get an estimate of how long it takes.
@@ -105,7 +104,7 @@ fn bench_function_runtime<Output, OutputErr>(
         }
     }
 
-    let total_runs = (args.bench_time as f64 / min_run.as_secs_f64())
+    let total_runs = (bench_time as f64 / min_run.as_secs_f64())
         .ceil()
         .max(10.0)
         .min(10e6) as u32;
@@ -180,7 +179,8 @@ pub struct Bench {
     pub(crate) alloc: &'static TracingAlloc,
     pub(crate) id: usize,
     pub(crate) chan: Sender<BenchEvent>,
-    pub(crate) args: &'static Lazy<Args>,
+    pub(crate) run_only: bool,
+    pub(crate) bench_time: u32,
 }
 
 impl Bench {
@@ -197,7 +197,7 @@ impl Bench {
                     })
                     .map_err(|_| BenchError::ChannelError(self.id))?;
 
-                if !self.args.run_type.is_run_only() {
+                if !self.run_only {
                     let data = bench_function_memory(self.alloc, f)
                         .map_err(|e| BenchError::MemoryBenchError(e, self.id))?;
 
@@ -205,7 +205,7 @@ impl Bench {
                         .send(BenchEvent::Memory { data, id: self.id })
                         .map_err(|_| BenchError::ChannelError(self.id))?;
 
-                    let data = bench_function_runtime(self.args, f);
+                    let data = bench_function_runtime(self.bench_time, f);
                     self.chan
                         .send(BenchEvent::Timing { data, id: self.id })
                         .map_err(|_| BenchError::ChannelError(self.id))?;

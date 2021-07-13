@@ -129,7 +129,8 @@ fn bench_days_chunk(
             alloc,
             id,
             chan: sender.clone(),
-            args: &ARGS,
+            run_only: ARGS.run_type.is_run_only(),
+            bench_time: ARGS.bench_time,
         };
         let sender = sender.clone();
         let day = func.day;
