@@ -80,43 +80,37 @@ fn get_data(trace_input: &str) -> MemoryData {
 }
 
 fn bench_function_runtime<Output, OutputErr>(
-    bench_time: u32,
+    bench_time: u64,
     func: impl Fn() -> Result<Output, OutputErr>,
 ) -> RuntimeData {
-    // Run a few times to get an estimate of how long it takes.
-    let mut min_run = Duration::from_secs(u64::MAX);
-
-    for _ in 0..5 {
-        let now = Instant::now();
-        let _ = func();
-        let time = now.elapsed();
-
-        if time < min_run {
-            min_run = time;
-        }
-    }
-
-    let total_runs = (bench_time as f64 / min_run.as_secs_f64())
-        .ceil()
-        .max(10.0)
-        .min(10e6) as u32;
-
     let mut total_time = Duration::default();
+    let mut total_runs = 0;
     let mut min_run = Duration::from_secs(u64::MAX);
     let mut max_run = Duration::default();
+    let bench_start = Instant::now();
 
-    for _ in 0..total_runs {
+    loop {
         let start = Instant::now();
-        let _ = func(); // We'll just discard the result as we handled errors before calling this function.
+        let res = func();
         let elapsed = start.elapsed();
-
         total_time += start.elapsed();
+        total_runs += 1;
+
+        // Don't drop while measuring, in case the user returns a non-trivial type.
+        // Also don't handle errors, as the function is assumed to be pure, and has already
+        // had its return value checked in our caller.
+        drop(res);
+
         if elapsed < min_run {
             min_run = elapsed;
         }
 
         if elapsed > max_run {
             max_run = elapsed;
+        }
+
+        if bench_start.elapsed().as_secs() >= bench_time && total_runs >= 10 {
+            break;
         }
     }
 
@@ -172,7 +166,7 @@ pub struct Bench {
     pub(crate) id: usize,
     pub(crate) chan: Sender<BenchEvent>,
     pub(crate) run_only: bool,
-    pub(crate) bench_time: u32,
+    pub(crate) bench_time: u64,
 }
 
 impl Bench {

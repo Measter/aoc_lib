@@ -99,7 +99,7 @@ pub(crate) struct Args {
 
     #[structopt(long, default_value = "3")]
     /// Benchmarking period in seconds to measure run time of parts
-    bench_time: u32,
+    bench_time: u64,
 
     #[structopt(long = "threads")]
     /// How many worker threads to spawn for benchmarking [default: cores - 2, min: 1]
