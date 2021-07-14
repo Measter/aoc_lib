@@ -8,6 +8,7 @@ use std::{
 
 use bytesize::ByteSize;
 use console::{style, Term};
+use crossbeam_channel::{Receiver, Sender};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
@@ -102,7 +103,7 @@ impl BenchedFunction {
     }
 }
 
-fn tick_bars(bars: Vec<ProgressBar>) {
+fn tick_bars_worker(bars: Vec<ProgressBar>) {
     loop {
         let all_finished = bars.iter().fold(true, |all_finished, bar| {
             if !bar.is_finished() {
@@ -116,6 +117,28 @@ fn tick_bars(bars: Vec<ProgressBar>) {
         }
 
         thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn ui_update_worker(
+    funcs: Arc<Mutex<Vec<BenchedFunction>>>,
+    receiver: Receiver<BenchEvent>,
+    time_sender: Sender<Duration>,
+) {
+    let mut funcs = funcs.lock().unwrap();
+    for event in receiver.iter() {
+        match event {
+            BenchEvent::Answer { answer, id } => funcs[id].answer(answer),
+            BenchEvent::Memory { data, id } => funcs[id].memory(data),
+            BenchEvent::Timing { data, id } => {
+                time_sender
+                    .send(data.mean_run)
+                    .expect("Failed to send timing from handler thread");
+                funcs[id].timing(data);
+            }
+            BenchEvent::Error { err, id } => funcs[id].error(err),
+            BenchEvent::Finish { id } => funcs[id].finish(),
+        }
     }
 }
 
@@ -167,7 +190,7 @@ fn bench_days_chunk(
 
     // Using the built-in steady tick spawns a thread for each bar. We could have up to 50.
     // Seems wasteful. Let's just spawn a single thread to tick them all instead.
-    let tick_thread = thread::spawn(move || tick_bars(bars));
+    let tick_thread = thread::spawn(move || tick_bars_worker(bars));
 
     // If we don't drop this thread's sender the handler thread will never stop.
     drop(sender);
@@ -179,31 +202,15 @@ fn bench_days_chunk(
     // We also need both this thread and the handler thread to have access to funcs, but spawn needs
     // 'static. In the words of Jon Hoo, this makes me sad...
     let funcs = Arc::new(Mutex::new(funcs));
-    let handler_thread = thread::spawn({
+    let ui_update_thread = thread::spawn({
         let funcs = funcs.clone();
-        move || {
-            let mut funcs = funcs.lock().unwrap();
-            for event in receiver.iter() {
-                match event {
-                    BenchEvent::Answer { answer, id } => funcs[id].answer(answer),
-                    BenchEvent::Memory { data, id } => funcs[id].memory(data),
-                    BenchEvent::Timing { data, id } => {
-                        time_sender
-                            .send(data.mean_run)
-                            .expect("Failed to send timing from handler thread");
-                        funcs[id].timing(data);
-                    }
-                    BenchEvent::Error { err, id } => funcs[id].error(err),
-                    BenchEvent::Finish { id } => funcs[id].finish(),
-                }
-            }
-        }
+        move || ui_update_worker(funcs, receiver, time_sender)
     });
 
     multi_bars
         .join_and_clear()
         .expect("Failed to join progress bars");
-    handler_thread
+    ui_update_thread
         .join()
         .expect("Failed to join handler thread");
     tick_thread.join().expect("Failed to join tick thread");
