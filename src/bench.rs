@@ -1,13 +1,14 @@
 use std::{
     fmt::Display,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
+    panic::catch_unwind,
     time::{Duration, Instant},
 };
 
 use crossbeam_channel::Sender;
 use thiserror::Error;
 
-use crate::{BenchError, BenchResult, TracingAlloc};
+use crate::{input, BenchError, BenchResult, TracingAlloc};
 
 pub mod simple;
 
@@ -209,4 +210,47 @@ impl Bench {
 
         Ok(())
     }
+}
+
+pub(crate) fn bench_worker(year: u16, day: u8, bench: Bench, func: Function) {
+    let id = bench.id;
+    let sender = bench.chan.clone();
+    match input(year, day).open() {
+        Ok(input) => {
+            let did_panic = catch_unwind(|| func(&input, bench));
+
+            match did_panic {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    sender
+                        .send(BenchEvent::Error {
+                            err: e.to_string(),
+                            id,
+                        })
+                        .expect("Unable to send error");
+                }
+                Err(_) => {
+                    sender
+                        .send(BenchEvent::Error {
+                            err: "Function panicked!".to_owned(),
+                            id,
+                        })
+                        .expect("Unable to send error");
+                }
+            }
+        }
+        Err(BenchError::InputFileError { inner, name }) => {
+            sender
+                .send(BenchEvent::Error {
+                    err: format!("{}: {:?}", name, inner.kind()),
+                    id,
+                })
+                .expect("Unable to send error");
+        }
+        Err(_) => unreachable!(), // InputFile::open only returns one error variant.
+    }
+
+    sender
+        .send(BenchEvent::Finish { id })
+        .expect("Unable to send finish");
 }

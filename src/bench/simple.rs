@@ -1,6 +1,6 @@
 use std::{
     iter,
-    panic::{self, catch_unwind, resume_unwind},
+    panic::{self},
     sync::{Arc, Mutex},
     thread,
     time::Duration,
@@ -12,9 +12,8 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::{
-    bench::{Bench, BenchEvent, Function, MemoryData, RuntimeData},
-    get_precision, input, print_footer, print_header, BenchError, BenchResult, Day, TracingAlloc,
-    ARGS,
+    bench::{bench_worker, Bench, BenchEvent, Function, MemoryData, RuntimeData},
+    get_precision, print_footer, print_header, BenchError, BenchResult, Day, TracingAlloc, ARGS,
 };
 
 struct BenchedFunction {
@@ -143,53 +142,10 @@ fn bench_days_chunk(
             run_only: ARGS.run_type.is_run_only(),
             bench_time: ARGS.bench_time,
         };
-        let sender = sender.clone();
         let day = func.day;
         let f = func.function;
 
-        pool.spawn(move || {
-            match input(year, day).open() {
-                Ok(input) => {
-                    let did_panic = catch_unwind(|| f(&input, bench));
-
-                    match did_panic {
-                        Ok(Ok(_)) => {}
-                        Ok(Err(e)) => {
-                            sender
-                                .send(BenchEvent::Error {
-                                    err: e.to_string(),
-                                    id,
-                                })
-                                .expect("Unable to send error");
-                        }
-                        // When running a single day, in run mode, let the panic continue.
-                        Err(e) if let_unwind => resume_unwind(e),
-                        // Otherwise, since we're handling the output of many functions so just eat it.
-                        Err(_) => {
-                            sender
-                                .send(BenchEvent::Error {
-                                    err: "Function panicked!".to_owned(),
-                                    id,
-                                })
-                                .expect("Unable to send error");
-                        }
-                    }
-                }
-                Err(BenchError::InputFileError { inner, name }) => {
-                    sender
-                        .send(BenchEvent::Error {
-                            err: format!("{}: {:?}", name, inner.kind()),
-                            id,
-                        })
-                        .expect("Unable to send error");
-                }
-                Err(_) => unreachable!(), // InputFile::open only returns one error variant.
-            }
-
-            sender
-                .send(BenchEvent::Finish { id })
-                .expect("Unable to send finish");
-        });
+        pool.spawn(move || bench_worker(year, day, bench, f));
     }
 
     // Using the built-in steady tick spawns a thread for each bar. We could have up to 50.
