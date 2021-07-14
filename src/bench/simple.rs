@@ -148,7 +148,6 @@ fn bench_days_chunk(
     mut funcs: Vec<BenchedFunction>,
     spinner_style: &ProgressStyle,
     pool: &ThreadPool,
-    let_unwind: bool,
 ) -> Result<Duration, BenchError> {
     let (sender, receiver) = crossbeam_channel::unbounded();
     let multi_bars = MultiProgress::new();
@@ -156,16 +155,12 @@ fn bench_days_chunk(
 
     let mut bars = Vec::new();
 
-    // We want to prevent the usual printing logic from running if we're not unwinding,
-    // so that the output doesn't get messed up.
-    // We do need to be careful about other sources of panics while this is replaced.
-    let old_panic_hook = if !let_unwind {
-        let old_hook = panic::take_hook();
-        panic::set_hook(Box::new(|_| {})); // Just eat the panic.
-        Some(old_hook)
-    } else {
-        None
-    };
+    // In order to prevent the panic message from messing up our output, we'll
+    // replace the panic hook with one that doesn't print anything.
+    // One issue here is that there are sources of panics between here
+    // and the restoration that *should* be printed. I need to figure out a way to handle that.
+    let old_panic_hook = panic::take_hook();
+    panic::set_hook(Box::new(|_| {})); // Just eat the panic.
 
     for (id, func) in funcs.iter_mut().enumerate() {
         let bar = multi_bars.add(ProgressBar::new_spinner());
@@ -215,10 +210,7 @@ fn bench_days_chunk(
         .expect("Failed to join handler thread");
     tick_thread.join().expect("Failed to join tick thread");
 
-    // Now to restore the panic hook.
-    if let Some(hook) = old_panic_hook {
-        panic::set_hook(hook);
-    }
+    panic::set_hook(old_panic_hook);
 
     // Now we've finished, to clear up a render bug when the parts finish rapidly
     // we'll re-render on stdout.
@@ -303,13 +295,9 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) 
         benched_functions.push(cur_chunk);
     }
 
-    let let_unwind = days.len() == 1 && ARGS.run_type.is_run_only();
-
     let total_time = benched_functions
         .into_iter()
-        .map(|days_chunk| {
-            bench_days_chunk(alloc, year, days_chunk, &spinner_style, &pool, let_unwind)
-        })
+        .map(|days_chunk| bench_days_chunk(alloc, year, days_chunk, &spinner_style, &pool))
         .try_fold(Duration::ZERO, |acc, a| a.map(|a| a + acc))?;
 
     print_footer(total_time);
