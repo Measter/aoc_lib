@@ -102,6 +102,23 @@ impl BenchedFunction {
     }
 }
 
+fn tick_bars(bars: Vec<ProgressBar>) {
+    loop {
+        let all_finished = bars.iter().fold(true, |all_finished, bar| {
+            if !bar.is_finished() {
+                bar.tick();
+            }
+            all_finished & bar.is_finished()
+        });
+
+        if all_finished {
+            break;
+        }
+
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
 fn bench_days_chunk(
     alloc: &'static TracingAlloc,
     year: u16,
@@ -150,20 +167,7 @@ fn bench_days_chunk(
 
     // Using the built-in steady tick spawns a thread for each bar. We could have up to 50.
     // Seems wasteful. Let's just spawn a single thread to tick them all instead.
-    let tick_thread = thread::spawn(move || loop {
-        let all_finished = bars.iter().fold(true, |all_finished, bar| {
-            if !bar.is_finished() {
-                bar.tick();
-            }
-            all_finished & bar.is_finished()
-        });
-
-        if all_finished {
-            break;
-        }
-
-        thread::sleep(Duration::from_millis(250));
-    });
+    let tick_thread = thread::spawn(move || tick_bars(bars));
 
     // If we don't drop this thread's sender the handler thread will never stop.
     drop(sender);
