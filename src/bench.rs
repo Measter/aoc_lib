@@ -226,10 +226,16 @@ pub(crate) fn bench_worker(year: u16, day: u8, bench: Bench, func: Function) {
                         })
                         .expect("Unable to send error");
                 }
-                Err(_) => {
+                Err(payload) => {
+                    let msg = payload
+                        .downcast_ref::<&str>()
+                        .copied()
+                        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                        .unwrap_or("Unknown reason");
+
                     sender
                         .send(BenchEvent::Error {
-                            err: "Function panicked!".to_owned(),
+                            err: format!("Panic: {}", msg),
                             id,
                         })
                         .expect("Unable to send error");
