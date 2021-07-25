@@ -202,15 +202,15 @@ fn bench_days_chunk(
         move || ui_update_worker(funcs, receiver, time_sender)
     });
 
-    multi_bars
-        .join_and_clear()
-        .expect("Failed to join progress bars");
-    ui_update_thread
-        .join()
-        .expect("Failed to join handler thread");
-    tick_thread.join().expect("Failed to join tick thread");
+    let mb_join_res = multi_bars.join_and_clear();
+    let ui_thread_res = ui_update_thread.join();
+    let tick_res = tick_thread.join();
 
     panic::set_hook(old_panic_hook);
+
+    mb_join_res.expect("Failed to join progress bars");
+    ui_thread_res.expect("Failed to join handler thread");
+    tick_res.expect("Failed to join tick thread");
 
     // Now we've finished, to clear up a render bug when the parts finish rapidly
     // we'll re-render on stdout.
