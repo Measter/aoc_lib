@@ -110,7 +110,9 @@ fn bench_function_runtime<Output, OutputErr>(
             max_run = elapsed;
         }
 
-        if bench_start.elapsed().as_secs() >= bench_time && total_runs >= 10 {
+        if (bench_start.elapsed().as_secs() >= bench_time && total_runs >= 10)
+            || total_runs > 1_000_000
+        {
             break;
         }
     }
