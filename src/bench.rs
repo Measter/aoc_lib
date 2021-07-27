@@ -94,7 +94,7 @@ fn bench_function_runtime<Output, OutputErr>(
         let start = Instant::now();
         let res = func();
         let elapsed = start.elapsed();
-        total_time += start.elapsed();
+        total_time += elapsed;
         total_runs += 1;
 
         // Don't drop while measuring, in case the user returns a non-trivial type.
