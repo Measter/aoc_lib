@@ -14,7 +14,8 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::{
     bench::{bench_worker, Bench, BenchEvent, Function, MemoryData, RuntimeData},
-    print_footer, print_header, render_duration, BenchError, BenchResult, Day, TracingAlloc, ARGS,
+    print_footer, print_header, render_decimal, render_duration, BenchError, BenchResult, Day,
+    RunType, TracingAlloc, ARGS,
 };
 
 struct BenchedFunction {
@@ -83,7 +84,7 @@ impl BenchedFunction {
                 .map(|(i, _)| &self.message[..i])
                 .unwrap_or(&self.message)
                 .to_owned()
-        } else {
+        } else if let RunType::Simple { .. } = &ARGS.run_type {
             let time = self
                 .timing_data
                 .as_ref()
@@ -96,6 +97,34 @@ impl BenchedFunction {
                 .unwrap_or_else(String::new);
 
             format!("{:<30} | {:<10} | {}", self.message, time, mem)
+        } else {
+            let (min_time, mean_time, max_time) = self
+                .timing_data
+                .as_ref()
+                .map(|td| {
+                    (
+                        render_duration(td.min_run),
+                        render_duration(td.mean_run),
+                        render_duration(td.max_run),
+                    )
+                })
+                .unwrap_or_default();
+
+            let (allocs, mem) = self
+                .memory_data
+                .as_ref()
+                .map(|md| {
+                    (
+                        render_decimal(md.num_allocs),
+                        format!("{}", ByteSize(md.max_memory as u64)),
+                    )
+                })
+                .unwrap_or_default();
+
+            format!(
+                "{:<30} | {:<8} .. {:<8} .. {:<8} | {:<7} | {}",
+                self.message, min_time, mean_time, max_time, allocs, mem
+            )
         }
     }
 }

@@ -207,6 +207,39 @@ fn get_days<'d>(days: &'d [Day], filter: Option<&[u8]>) -> Result<Vec<&'d Day>, 
     }
 }
 
+pub(crate) fn render_decimal(val: usize) -> String {
+    let (factor, unit) = if val < 10usize.pow(3) {
+        (10f64.powi(0), "")
+    } else if val < 10usize.pow(6) {
+        (10f64.powi(-3), " k")
+    } else if val < 10usize.pow(9) {
+        (10f64.powi(-6), " M")
+    } else {
+        (10f64.powi(-9), " B")
+    };
+
+    let val_f = (val as f64) * factor;
+    let prec = if val < 1000 {
+        0 // No need for decimals here.
+    } else if val_f < 10.0 {
+        3
+    } else if val_f < 100.0 {
+        2
+    } else if val_f < 1000.0 {
+        1
+    } else {
+        0
+    };
+
+    format!(
+        "{:>width$.prec$}{}",
+        val_f,
+        unit,
+        prec = prec,
+        width = 7 - unit.len()
+    )
+}
+
 pub fn render_duration(time: Duration) -> String {
     // The logic here is basically copied from Criterion.
     let time = time.as_nanos() as f64;
@@ -242,18 +275,28 @@ fn print_header() {
     if ARGS.run_type.is_run_only() {
         println!("   Day | {:<30} ", "Answer");
         println!("_______|_{0:_<30}", "");
-    } else {
+    } else if let RunType::Simple { .. } = &ARGS.run_type {
         println!("   Day | {:<30} | {:<10} | Max Mem.", "Answer", "Time");
         println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+    } else {
+        println!(
+            "   Day | {:<30} | {:<32} | Allocs  | Max Mem.",
+            "Answer", "Time"
+        );
+        println!("_______|_{0:_<30}_|_{0:_<32}_|_________|_____________", "");
     }
 }
 
 fn print_footer(total_time: Duration) {
     if ARGS.run_type.is_run_only() {
         println!("_______|_{0:_<30}", "");
-    } else {
+    } else if let RunType::Simple { .. } = &ARGS.run_type {
         let time = render_duration(total_time);
         println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+        println!(" Total Time: {:26} | {}", "", time);
+    } else {
+        let time = render_duration(total_time);
+        println!("_______|_{0:_<30}_|_{0:_<32}_|_________|_____________", "");
         println!(" Total Time: {:26} | {}", "", time);
     }
 }
@@ -298,10 +341,10 @@ pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), 
     println!("Advent of Code {}", year);
     match (&ARGS.run_type, &*days) {
         (RunType::Run { .. }, [day]) => run_single(alloc, year, day),
-        (RunType::Run { .. } | RunType::Simple { .. }, days) => {
+        (RunType::Detailed { .. }, [_]) => todo!(),
+        (RunType::Run { .. } | RunType::Simple { .. } | RunType::Detailed { .. }, days) => {
             run_simple_bench(alloc, year, &days)
         }
-        (RunType::Detailed { .. }, _) => todo!(),
     }
 }
 
