@@ -207,12 +207,35 @@ fn get_days<'d>(days: &'d [Day], filter: Option<&[u8]>) -> Result<Vec<&'d Day>, 
     }
 }
 
-pub fn get_precision(val: Duration) -> usize {
-    if val.as_nanos() < 1000 {
-        0
+pub fn render_duration(time: Duration) -> String {
+    // The logic here is basically copied from Criterion.
+    let time = time.as_nanos() as f64;
+
+    let (factor, unit) = if time < 10f64.powi(0) {
+        (10f64.powi(3), "ps")
+    } else if time < 10f64.powi(3) {
+        (10f64.powi(0), "ns")
+    } else if time < 10f64.powi(6) {
+        (10f64.powi(-3), "µs")
+    } else if time < 10f64.powi(9) {
+        (10f64.powi(-6), "ms")
     } else {
+        (10f64.powi(-9), "s")
+    };
+
+    let time = time * factor;
+
+    let prec = if time < 10.0 {
         3
-    }
+    } else if time < 100.0 {
+        2
+    } else if time < 1000.0 {
+        1
+    } else {
+        0
+    };
+
+    format!("{:>5.prec$} {}", time, unit, prec = prec)
 }
 
 fn print_header() {
@@ -229,14 +252,9 @@ fn print_footer(total_time: Duration) {
     if ARGS.run_type.is_run_only() {
         println!("_______|_{0:_<30}", "");
     } else {
-        let prec = get_precision(total_time);
+        let time = render_duration(total_time);
         println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
-        println!(
-            " Total Time: {:26} | {:.prec$?}",
-            "",
-            total_time,
-            prec = prec
-        );
+        println!(" Total Time: {:26} | {}", "", time);
     }
 }
 

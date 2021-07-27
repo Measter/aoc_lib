@@ -14,7 +14,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::{
     bench::{bench_worker, Bench, BenchEvent, Function, MemoryData, RuntimeData},
-    get_precision, print_footer, print_header, BenchError, BenchResult, Day, TracingAlloc, ARGS,
+    print_footer, print_header, render_duration, BenchError, BenchResult, Day, TracingAlloc, ARGS,
 };
 
 struct BenchedFunction {
@@ -87,10 +87,7 @@ impl BenchedFunction {
             let time = self
                 .timing_data
                 .as_ref()
-                .map(|td| {
-                    let prec = get_precision(td.mean_run);
-                    format!("{:.prec$?}", td.mean_run, prec = prec)
-                })
+                .map(|td| render_duration(td.mean_run))
                 .unwrap_or_else(String::new);
             let mem = self
                 .memory_data
