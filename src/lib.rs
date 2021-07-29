@@ -343,7 +343,7 @@ pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), 
         (RunType::Run { .. }, [day]) => run_single(alloc, year, day),
         (RunType::Detailed { .. }, [_]) => todo!(),
         (RunType::Run { .. } | RunType::Simple { .. } | RunType::Detailed { .. }, days) => {
-            run_simple_bench(alloc, year, &days)
+            run_simple_bench(alloc, year, days)
         }
     }
 }
