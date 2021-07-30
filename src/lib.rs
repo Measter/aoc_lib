@@ -11,8 +11,8 @@ pub mod misc;
 pub mod parsers;
 
 pub use alloc::TracingAlloc;
+pub use bench::Bench;
 use bench::{simple::run_simple_bench, AlternateAnswer, BenchEvent, Function, MemoryBenchError};
-pub use bench::{AnswerType, Bench};
 
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
@@ -302,9 +302,9 @@ fn print_footer(total_time: Duration) {
 
 fn print_alt_answers(receiver: Receiver<AlternateAnswer>) {
     if !receiver.is_empty() {
-        println!("\n -- Additional Answers --");
+        println!("\n -- Alternate Answers --");
         for alt_ans in receiver.iter() {
-            println!("Day {}, part: {}", alt_ans.day, alt_ans.day_function_id);
+            println!("Day {}, Part: {}", alt_ans.day, alt_ans.day_function_id);
             println!("{}\n", alt_ans.answer);
         }
     }

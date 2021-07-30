@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     fmt::Display,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     panic::catch_unwind,
@@ -171,17 +170,6 @@ pub(crate) enum BenchEvent {
     Finish { id: usize },
 }
 
-pub enum AnswerType<T> {
-    Main(T),
-    Alt(T),
-}
-
-impl<T> From<T> for AnswerType<T> {
-    fn from(t: T) -> Self {
-        Self::Main(t)
-    }
-}
-
 pub(crate) struct AlternateAnswer {
     pub(crate) answer: String,
     pub(crate) day: u8,
@@ -200,12 +188,28 @@ pub struct Bench {
 }
 
 impl Bench {
-    pub fn bench<T, E>(
+    pub fn bench_alt<T, E>(self, f: impl Fn() -> Result<T, E> + Copy) -> Result<(), BenchError>
+    where
+        T: Display,
+        E: Display,
+    {
+        self.bench_inner(true, f)
+    }
+    pub fn bench<T, E>(self, f: impl Fn() -> Result<T, E> + Copy) -> Result<(), BenchError>
+    where
+        T: Display,
+        E: Display,
+    {
+        self.bench_inner(false, f)
+    }
+
+    fn bench_inner<T, E>(
         self,
-        f: impl Fn() -> Result<AnswerType<T>, E> + Copy,
+        is_alt: bool,
+        f: impl Fn() -> Result<T, E> + Copy,
     ) -> Result<(), BenchError>
     where
-        T: Display + Any,
+        T: Display,
         E: Display,
     {
         let answer = f()
@@ -217,32 +221,25 @@ impl Bench {
             })
             .map_err(|_| BenchError::ChannelError(self.id))?;
 
-        match answer {
-            AnswerType::Alt(answer) => {
-                self.chan
-                    .send(BenchEvent::Answer {
-                        answer: "Check alternate answers".to_owned(),
-                        id: self.id,
-                    })
-                    .map_err(|_| BenchError::ChannelError(self.id))?;
+        let answer = if is_alt {
+            self.alt_answer_chan
+                .send(AlternateAnswer {
+                    answer: answer.to_string(),
+                    day: self.day,
+                    day_function_id: self.day_function_id,
+                })
+                .map_err(|_| BenchError::ChannelError(self.id))?;
+            "Check alternate answers".to_owned()
+        } else {
+            answer.to_string()
+        };
 
-                self.alt_answer_chan
-                    .send(AlternateAnswer {
-                        answer: answer.to_string(),
-                        day: self.day,
-                        day_function_id: self.day_function_id,
-                    })
-                    .map_err(|_| BenchError::ChannelError(self.id))?;
-            }
-            AnswerType::Main(answer) => {
-                self.chan
-                    .send(BenchEvent::Answer {
-                        answer: answer.to_string(),
-                        id: self.id,
-                    })
-                    .map_err(|_| BenchError::ChannelError(self.id))?;
-            }
-        }
+        self.chan
+            .send(BenchEvent::Answer {
+                answer,
+                id: self.id,
+            })
+            .map_err(|_| BenchError::ChannelError(self.id))?;
 
         if !self.run_only {
             let data = bench_function_memory(self.alloc, f)
