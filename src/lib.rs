@@ -1,5 +1,6 @@
 use std::{fmt::Display, iter, num::ParseIntError, time::Duration};
 
+use crossbeam_channel::Receiver;
 use once_cell::sync::Lazy;
 use structopt::StructOpt;
 use thiserror::Error;
@@ -10,10 +11,8 @@ pub mod misc;
 pub mod parsers;
 
 pub use alloc::TracingAlloc;
-pub use bench::Bench;
-use bench::{simple::run_simple_bench, Function, MemoryBenchError};
-
-use crate::bench::BenchEvent;
+use bench::{simple::run_simple_bench, AlternateAnswer, BenchEvent, Function, MemoryBenchError};
+pub use bench::{AnswerType, Bench};
 
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
@@ -301,12 +300,23 @@ fn print_footer(total_time: Duration) {
     }
 }
 
+fn print_alt_answers(receiver: Receiver<AlternateAnswer>) {
+    if !receiver.is_empty() {
+        println!("\n -- Additional Answers --");
+        for alt_ans in receiver.iter() {
+            println!("Day {}, part: {}", alt_ans.day, alt_ans.day_function_id);
+            println!("{}\n", alt_ans.answer);
+        }
+    }
+}
+
 // No need for all of the complex machinery just to run the two functions, given we want
 // panics to happen as normal.
 fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), BenchError> {
     print_header();
 
     let (sender, receiver) = crossbeam_channel::unbounded();
+    let (alt_answer_sender, alt_answer_receiver) = crossbeam_channel::unbounded();
 
     let parts = iter::once(day.part_1).chain(day.part_2).zip(1..);
 
@@ -314,6 +324,9 @@ fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), 
         let dummy = Bench {
             alloc,
             id: 0,
+            day: day.day,
+            day_function_id: id,
+            alt_answer_chan: alt_answer_sender.clone(),
             chan: sender.clone(),
             run_only: true,
             bench_time: 0,
@@ -331,6 +344,9 @@ fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), 
     }
 
     print_footer(Duration::ZERO);
+
+    drop(alt_answer_sender);
+    print_alt_answers(alt_answer_receiver);
 
     Ok(())
 }

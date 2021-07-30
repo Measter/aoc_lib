@@ -14,9 +14,11 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::{
     bench::{bench_worker, Bench, BenchEvent, Function, MemoryData, RuntimeData},
-    print_footer, print_header, render_decimal, render_duration, BenchError, BenchResult, Day,
-    RunType, TracingAlloc, ARGS,
+    print_alt_answers, print_footer, print_header, render_decimal, render_duration, BenchError,
+    BenchResult, Day, RunType, TracingAlloc, ARGS,
 };
+
+use super::AlternateAnswer;
 
 struct BenchedFunction {
     // name: &'static str,
@@ -172,6 +174,7 @@ fn bench_days_chunk(
     alloc: &'static TracingAlloc,
     year: u16,
     mut funcs: Vec<BenchedFunction>,
+    alt_answer_sender: Sender<AlternateAnswer>,
     spinner_style: &ProgressStyle,
     pool: &ThreadPool,
 ) -> Result<Duration, BenchError> {
@@ -199,6 +202,9 @@ fn bench_days_chunk(
         let bench = Bench {
             alloc,
             id,
+            day: func.day,
+            day_function_id: func.day_function_id,
+            alt_answer_chan: alt_answer_sender.clone(),
             chan: sender.clone(),
             run_only: ARGS.run_type.is_run_only(),
             bench_time: ARGS.bench_time,
@@ -321,12 +327,26 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) 
         benched_functions.push(cur_chunk);
     }
 
+    let (alt_answer_sender, alt_answer_receiver) = crossbeam_channel::unbounded();
+
     let total_time = benched_functions
         .into_iter()
-        .map(|days_chunk| bench_days_chunk(alloc, year, days_chunk, &spinner_style, &pool))
+        .map(|days_chunk| {
+            bench_days_chunk(
+                alloc,
+                year,
+                days_chunk,
+                alt_answer_sender.clone(),
+                &spinner_style,
+                &pool,
+            )
+        })
         .try_fold(Duration::ZERO, |acc, a| a.map(|a| a + acc))?;
 
     print_footer(total_time);
+
+    drop(alt_answer_sender);
+    print_alt_answers(alt_answer_receiver);
 
     Ok(())
 }

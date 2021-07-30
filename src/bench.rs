@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     fmt::Display,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     panic::catch_unwind,
@@ -170,19 +171,43 @@ pub(crate) enum BenchEvent {
     Finish { id: usize },
 }
 
+pub enum AnswerType<T> {
+    Main(T),
+    Alt(T),
+}
+
+impl<T> From<T> for AnswerType<T> {
+    fn from(t: T) -> Self {
+        Self::Main(t)
+    }
+}
+
+pub(crate) struct AlternateAnswer {
+    pub(crate) answer: String,
+    pub(crate) day: u8,
+    pub(crate) day_function_id: u8,
+}
+
 pub struct Bench {
     pub(crate) alloc: &'static TracingAlloc,
+    pub(crate) day: u8,
+    pub(crate) day_function_id: u8,
     pub(crate) id: usize,
     pub(crate) chan: Sender<BenchEvent>,
+    pub(crate) alt_answer_chan: Sender<AlternateAnswer>,
     pub(crate) run_only: bool,
     pub(crate) bench_time: u64,
 }
 
 impl Bench {
-    pub fn bench<T: Display, E: Display>(
+    pub fn bench<T, E>(
         self,
-        f: impl Fn() -> Result<T, E> + Copy,
-    ) -> Result<(), BenchError> {
+        f: impl Fn() -> Result<AnswerType<T>, E> + Copy,
+    ) -> Result<(), BenchError>
+    where
+        T: Display + Any,
+        E: Display,
+    {
         let answer = f()
             .map_err(|e| {
                 self.chan.send(BenchEvent::Error {
@@ -192,12 +217,32 @@ impl Bench {
             })
             .map_err(|_| BenchError::ChannelError(self.id))?;
 
-        self.chan
-            .send(BenchEvent::Answer {
-                answer: answer.to_string(),
-                id: self.id,
-            })
-            .map_err(|_| BenchError::ChannelError(self.id))?;
+        match answer {
+            AnswerType::Alt(answer) => {
+                self.chan
+                    .send(BenchEvent::Answer {
+                        answer: "Check alternate answers".to_owned(),
+                        id: self.id,
+                    })
+                    .map_err(|_| BenchError::ChannelError(self.id))?;
+
+                self.alt_answer_chan
+                    .send(AlternateAnswer {
+                        answer: answer.to_string(),
+                        day: self.day,
+                        day_function_id: self.day_function_id,
+                    })
+                    .map_err(|_| BenchError::ChannelError(self.id))?;
+            }
+            AnswerType::Main(answer) => {
+                self.chan
+                    .send(BenchEvent::Answer {
+                        answer: answer.to_string(),
+                        id: self.id,
+                    })
+                    .map_err(|_| BenchError::ChannelError(self.id))?;
+            }
+        }
 
         if !self.run_only {
             let data = bench_function_memory(self.alloc, f)
