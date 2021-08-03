@@ -15,7 +15,8 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use crate::{
     bench::{bench_worker, Bench, BenchEvent, Function, MemoryData, RuntimeData},
     print_alt_answers, print_footer, print_header, render_decimal, render_duration, BenchError,
-    BenchResult, Day, RunType, TracingAlloc, ARGS,
+    BenchResult, Day, RunType, TracingAlloc, ARGS, TABLE_DETAILED_COLS_WIDTH, TABLE_PRE_COL_WIDTH,
+    TABLE_SIMPLE_COLS_WIDTH,
 };
 
 use super::AlternateAnswer;
@@ -82,7 +83,7 @@ impl BenchedFunction {
             // Keep the error within the width of the terminal.
             self.message
                 .char_indices()
-                .nth(self.term_width - 10)
+                .nth(self.term_width - TABLE_PRE_COL_WIDTH)
                 .map(|(i, _)| &self.message[..i])
                 .unwrap_or(&self.message)
                 .to_owned()
@@ -90,6 +91,19 @@ impl BenchedFunction {
             detailed: false, ..
         } = &ARGS.run_type
         {
+            let msg_max_width = self
+                .term_width
+                .saturating_sub(TABLE_SIMPLE_COLS_WIDTH)
+                .max(12)
+                .min(30);
+
+            let msg = self
+                .message
+                .char_indices()
+                .nth(msg_max_width)
+                .map(|(i, _)| &self.message[..i])
+                .unwrap_or(&self.message);
+
             let time = self
                 .timing_data
                 .as_ref()
@@ -101,8 +115,27 @@ impl BenchedFunction {
                 .map(|md| format!("{}", ByteSize(md.max_memory as u64)))
                 .unwrap_or_else(String::new);
 
-            format!("{:<30} | {:<8} | {}", self.message, time, mem)
+            format!(
+                "{:<msg_width$} | {:<8} | {}",
+                msg,
+                time,
+                mem,
+                msg_width = msg_max_width
+            )
         } else {
+            let msg_max_width = self
+                .term_width
+                .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
+                .max(12)
+                .min(30);
+
+            let msg = self
+                .message
+                .char_indices()
+                .nth(msg_max_width)
+                .map(|(i, _)| &self.message[..i])
+                .unwrap_or(&self.message);
+
             let (min_time, mean_time, max_time) = self
                 .timing_data
                 .as_ref()
@@ -127,8 +160,14 @@ impl BenchedFunction {
                 .unwrap_or_default();
 
             format!(
-                "{:<30} | {:<8} .. {:<8} .. {:<8} | {:<7} | {}",
-                self.message, min_time, mean_time, max_time, allocs, mem
+                "{:<msg_width$} | {:<8} .. {:<8} .. {:<8} | {:<7} | {}",
+                msg,
+                min_time,
+                mean_time,
+                max_time,
+                allocs,
+                mem,
+                msg_width = msg_max_width
             )
         }
     }
@@ -277,7 +316,14 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) 
         .build()
         .expect("Failed to build threadpool");
 
-    print_header();
+    // MultiProgress goes a bit nuts if the terminal isn't tall enough to display all the bars
+    // at once. So we need to chunk the functions to bench based on how tall the terminal is.
+    let stdout = Term::stdout();
+    let (rows, cols) = stdout.size();
+    // Add room for header and trailing line.
+    let rows = rows.saturating_sub(5) as usize;
+
+    print_header(cols as _);
 
     let spinner_style = ProgressStyle::default_spinner()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
@@ -288,13 +334,6 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) 
     let error_spinner = spinner_style
         .clone()
         .template("{spinner} {prefix:.red} | {msg}");
-
-    // MultiProgress goes a bit nuts if the terminal isn't tall enough to display all the bars
-    // at once. So we need to chunk the functions to bench based on how tall the terminal is.
-    let stdout = Term::stdout();
-    let (rows, cols) = stdout.size();
-    // Add room for header and trailing line.
-    let rows = rows.saturating_sub(5) as usize;
 
     let mut benched_functions = Vec::new();
     let mut cur_chunk = Vec::new();
@@ -346,7 +385,7 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) 
         })
         .try_fold(Duration::ZERO, |acc, a| a.map(|a| a + acc))?;
 
-    print_footer(total_time);
+    print_footer(total_time, cols as _);
 
     drop(alt_answer_sender);
     print_alt_answers(alt_answer_receiver);

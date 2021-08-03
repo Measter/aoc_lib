@@ -1,5 +1,6 @@
 use std::{fmt::Display, iter, num::ParseIntError, time::Duration};
 
+use console::Term;
 use crossbeam_channel::Receiver;
 use once_cell::sync::Lazy;
 use structopt::StructOpt;
@@ -17,6 +18,12 @@ use bench::{simple::run_simple_bench, AlternateAnswer, BenchEvent, Function, Mem
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
 pub type BenchResult = Result<(), BenchError>;
+
+const TABLE_PRE_COL_WIDTH: usize = 9;
+// The amount of space taken up by the ticker, day ID, and bench data columns, plus separators.
+const TABLE_SIMPLE_COLS_WIDTH: usize = TABLE_PRE_COL_WIDTH + 24;
+// The amount of space taken up by the ticker, day ID, and bench data columns, plus separators.
+const TABLE_DETAILED_COLS_WIDTH: usize = TABLE_PRE_COL_WIDTH + 57;
 
 #[derive(Debug, Error)]
 pub enum BenchError {
@@ -274,7 +281,7 @@ pub fn render_duration(time: Duration) -> String {
     format!("{:>5.prec$} {}", time, unit, prec = prec)
 }
 
-fn print_header() {
+fn print_header(term_width: usize) {
     if ARGS.run_type.is_run_only() {
         println!("   Day | Answer");
         println!("_______|_{0:_<30}", "");
@@ -282,31 +289,80 @@ fn print_header() {
         detailed: false, ..
     } = &ARGS.run_type
     {
-        println!("   Day | {:<30} | {:<8} | Max Mem.", "Answer", "Time");
-        println!("_______|_{0:_<30}_|_{0:_<8}_|___________", "");
-    } else {
+        let msg_max_width = term_width
+            .saturating_sub(TABLE_SIMPLE_COLS_WIDTH)
+            .max(12)
+            .min(30);
         println!(
-            "   Day | {:<30} | {:<32} | Allocs  | Max Mem.",
-            "Answer", "Time"
+            "   Day | {:<max_width$} | {:<8} | Max Mem.",
+            "Answer",
+            "Time",
+            max_width = msg_max_width
         );
-        println!("_______|_{0:_<30}_|_{0:_<32}_|_________|__________", "");
+        println!(
+            "_______|_{0:_<max_width$}_|_{0:_<8}_|___________",
+            "",
+            max_width = msg_max_width
+        );
+    } else {
+        let msg_max_width = term_width
+            .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
+            .max(12)
+            .min(30);
+        println!(
+            "   Day | {:<max_width$} | {:<32} | Allocs  | Max Mem.",
+            "Answer",
+            "Time",
+            max_width = msg_max_width
+        );
+        println!(
+            "_______|_{0:_<max_width$}_|_{0:_<32}_|_________|__________",
+            "",
+            max_width = msg_max_width
+        );
     }
 }
 
-fn print_footer(total_time: Duration) {
+fn print_footer(total_time: Duration, term_width: usize) {
     if ARGS.run_type.is_run_only() {
         println!("_______|_{0:_<30}", "");
     } else if let RunType::Bench {
         detailed: false, ..
     } = &ARGS.run_type
     {
+        let msg_max_width = term_width
+            .saturating_sub(TABLE_SIMPLE_COLS_WIDTH)
+            .max(12)
+            .min(30);
         let time = render_duration(total_time);
-        println!("_______|_{0:_<30}_|_{0:_<8}_|___________", "");
-        println!(" Total Time: {:26} | {}", "", time);
+        println!(
+            "_______|_{0:_<max_width$}_|_{0:_<8}_|___________",
+            "",
+            max_width = msg_max_width
+        );
+        println!(
+            " Total Time: {:max_width$} | {}",
+            "",
+            time,
+            max_width = msg_max_width - 4
+        );
     } else {
+        let msg_max_width = term_width
+            .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
+            .max(12)
+            .min(30);
         let time = render_duration(total_time);
-        println!("_______|_{0:_<30}_|_{0:_<32}_|_________|__________", "");
-        println!(" Total Time: {:26} | {}", "", time);
+        println!(
+            "_______|_{0:_<max_width$}_|_{0:_<32}_|_________|__________",
+            "",
+            max_width = msg_max_width
+        );
+        println!(
+            " Total Time: {:max_width$} | {}",
+            "",
+            time,
+            max_width = msg_max_width - 4
+        );
     }
 }
 
@@ -323,7 +379,9 @@ fn print_alt_answers(receiver: Receiver<AlternateAnswer>) {
 // No need for all of the complex machinery just to run the two functions, given we want
 // panics to happen as normal.
 fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), BenchError> {
-    print_header();
+    let stdout = Term::stdout();
+    let (_, cols) = stdout.size();
+    print_header(cols as _);
 
     let (sender, receiver) = crossbeam_channel::unbounded();
     let (alt_answer_sender, alt_answer_receiver) = crossbeam_channel::unbounded();
@@ -353,7 +411,7 @@ fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), 
         println!("  {:>2}.{} | {}", day.day, id, message);
     }
 
-    print_footer(Duration::ZERO);
+    print_footer(Duration::ZERO, cols as _);
 
     drop(alt_answer_sender);
     print_alt_answers(alt_answer_receiver);
