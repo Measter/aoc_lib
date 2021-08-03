@@ -101,7 +101,7 @@ impl BenchedFunction {
                 .map(|md| format!("{}", ByteSize(md.max_memory as u64)))
                 .unwrap_or_else(String::new);
 
-            format!("{:<30} | {:<10} | {}", self.message, time, mem)
+            format!("{:<30} | {:<8} | {}", self.message, time, mem)
         } else {
             let (min_time, mean_time, max_time) = self
                 .timing_data

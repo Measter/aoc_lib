@@ -276,20 +276,20 @@ pub fn render_duration(time: Duration) -> String {
 
 fn print_header() {
     if ARGS.run_type.is_run_only() {
-        println!("   Day | {:<30} ", "Answer");
+        println!("   Day | Answer");
         println!("_______|_{0:_<30}", "");
     } else if let RunType::Bench {
         detailed: false, ..
     } = &ARGS.run_type
     {
-        println!("   Day | {:<30} | {:<10} | Max Mem.", "Answer", "Time");
-        println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+        println!("   Day | {:<30} | {:<8} | Max Mem.", "Answer", "Time");
+        println!("_______|_{0:_<30}_|_{0:_<8}_|___________", "");
     } else {
         println!(
             "   Day | {:<30} | {:<32} | Allocs  | Max Mem.",
             "Answer", "Time"
         );
-        println!("_______|_{0:_<30}_|_{0:_<32}_|_________|_____________", "");
+        println!("_______|_{0:_<30}_|_{0:_<32}_|_________|__________", "");
     }
 }
 
@@ -301,11 +301,11 @@ fn print_footer(total_time: Duration) {
     } = &ARGS.run_type
     {
         let time = render_duration(total_time);
-        println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
+        println!("_______|_{0:_<30}_|_{0:_<8}_|___________", "");
         println!(" Total Time: {:26} | {}", "", time);
     } else {
         let time = render_duration(total_time);
-        println!("_______|_{0:_<30}_|_{0:_<32}_|_________|_____________", "");
+        println!("_______|_{0:_<30}_|_{0:_<32}_|_________|__________", "");
         println!(" Total Time: {:26} | {}", "", time);
     }
 }
