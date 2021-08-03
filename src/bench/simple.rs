@@ -86,7 +86,10 @@ impl BenchedFunction {
                 .map(|(i, _)| &self.message[..i])
                 .unwrap_or(&self.message)
                 .to_owned()
-        } else if let RunType::Simple { .. } = &ARGS.run_type {
+        } else if let RunType::Bench {
+            detailed: false, ..
+        } = &ARGS.run_type
+        {
             let time = self
                 .timing_data
                 .as_ref()

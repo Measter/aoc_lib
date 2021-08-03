@@ -58,21 +58,25 @@ fn parse_days_list(src: &str) -> Result<u8, ParseIntError> {
 pub(crate) enum RunType {
     /// Just runs the day's primary functions.
     Run {
-        #[structopt(short, long, parse(try_from_str = parse_days_list))]
+        #[structopt(parse(try_from_str = parse_days_list))]
         /// List of days to run [default: all]
-        days: Option<Vec<u8>>,
+        days: Vec<u8>,
     },
     /// Benchmarks the days' primary functions, and lists them in a simple format.
-    Simple {
-        #[structopt(short, long, parse(try_from_str = parse_days_list))]
+    Bench {
+        #[structopt(parse(try_from_str = parse_days_list))]
         /// List of days to run [default: all]
-        days: Option<Vec<u8>>,
+        days: Vec<u8>,
+
+        #[structopt(short)]
+        /// Render more detailed benchmarking info.
+        detailed: bool,
     },
     /// Benchmarks all the days' functions, and provides a more detailed listing.
     Detailed {
-        #[structopt(short, long, parse(try_from_str = parse_days_list))]
+        #[structopt(parse(try_from_str = parse_days_list))]
         /// List of days to run [default: all]
-        days: Option<Vec<u8>>,
+        days: Vec<u8>,
     },
 }
 
@@ -81,10 +85,10 @@ impl RunType {
         matches!(self, RunType::Run { .. })
     }
 
-    fn days(&self) -> Option<&[u8]> {
+    fn days(&self) -> &[u8] {
         match self {
-            RunType::Run { days } | RunType::Simple { days } | RunType::Detailed { days } => {
-                days.as_deref()
+            RunType::Run { days } | RunType::Bench { days, .. } | RunType::Detailed { days } => {
+                days
             }
         }
     }
@@ -186,10 +190,10 @@ pub struct Day {
     pub part_2: Option<Function>,
 }
 
-fn get_days<'d>(days: &'d [Day], filter: Option<&[u8]>) -> Result<Vec<&'d Day>, BenchError> {
+fn get_days<'d>(days: &'d [Day], filter: &[u8]) -> Result<Vec<&'d Day>, BenchError> {
     match filter {
-        Some([]) | None => Ok(days.iter().collect()),
-        Some(filter) => {
+        [] => Ok(days.iter().collect()),
+        filter => {
             let mut new_days = Vec::with_capacity(filter.len());
 
             for &filter_day in filter {
@@ -274,7 +278,10 @@ fn print_header() {
     if ARGS.run_type.is_run_only() {
         println!("   Day | {:<30} ", "Answer");
         println!("_______|_{0:_<30}", "");
-    } else if let RunType::Simple { .. } = &ARGS.run_type {
+    } else if let RunType::Bench {
+        detailed: false, ..
+    } = &ARGS.run_type
+    {
         println!("   Day | {:<30} | {:<10} | Max Mem.", "Answer", "Time");
         println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
     } else {
@@ -289,7 +296,10 @@ fn print_header() {
 fn print_footer(total_time: Duration) {
     if ARGS.run_type.is_run_only() {
         println!("_______|_{0:_<30}", "");
-    } else if let RunType::Simple { .. } = &ARGS.run_type {
+    } else if let RunType::Bench {
+        detailed: false, ..
+    } = &ARGS.run_type
+    {
         let time = render_duration(total_time);
         println!("_______|_{0:_<30}_|_{0:_<10}_|______________", "");
         println!(" Total Time: {:26} | {}", "", time);
@@ -357,10 +367,8 @@ pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), 
     println!("Advent of Code {}", year);
     match (&ARGS.run_type, &*days) {
         (RunType::Run { .. }, [day]) => run_single(alloc, year, day),
-        (RunType::Detailed { .. }, [_]) => todo!(),
-        (RunType::Run { .. } | RunType::Simple { .. } | RunType::Detailed { .. }, days) => {
-            run_simple_bench(alloc, year, days)
-        }
+        (RunType::Detailed { .. }, _) => todo!(),
+        (RunType::Run { .. } | RunType::Bench { .. }, days) => run_simple_bench(alloc, year, days),
     }
 }
 
