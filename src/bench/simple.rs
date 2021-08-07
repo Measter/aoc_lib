@@ -136,16 +136,10 @@ impl BenchedFunction {
                 .map(|(i, _)| &self.message[..i])
                 .unwrap_or(&self.message);
 
-            let (min_time, mean_time, max_time) = self
+            let (mean_time, std_dev) = self
                 .timing_data
                 .as_ref()
-                .map(|td| {
-                    (
-                        render_duration(td.min_run),
-                        render_duration(td.mean_run),
-                        render_duration(td.max_run),
-                    )
-                })
+                .map(|td| (render_duration(td.mean_run), render_duration(td.std_dev)))
                 .unwrap_or_default();
 
             let (allocs, mem) = self
@@ -160,11 +154,10 @@ impl BenchedFunction {
                 .unwrap_or_default();
 
             format!(
-                "{:<msg_width$} | {:<8} .. {:<8} .. {:<8} | {:<7} | {}",
+                "{:<msg_width$} | {:<8} (σ {:<8}) | {:<7} | {}",
                 msg,
-                min_time,
                 mean_time,
-                max_time,
+                std_dev,
                 allocs,
                 mem,
                 msg_width = msg_max_width

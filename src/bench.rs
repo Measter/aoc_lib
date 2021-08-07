@@ -14,6 +14,9 @@ pub mod simple;
 
 pub type Function = for<'a> fn(&'a str, Bench) -> BenchResult;
 
+const NANOS_PER_SECOND: f64 = 1_000_000_000.0;
+const MAX_SAMPLES: usize = 1_000_000;
+
 #[derive(Debug, Error)]
 #[error("Error benching memory use: {:?}", .inner)]
 pub struct MemoryBenchError {
@@ -25,9 +28,8 @@ pub struct MemoryBenchError {
 #[derive(Default)]
 pub(crate) struct RuntimeData {
     // pub(crate) total_runs: u32,
-    pub(crate) min_run: Duration,
     pub(crate) mean_run: Duration,
-    pub(crate) max_run: Duration,
+    pub(crate) std_dev: Duration,
 }
 
 #[derive(Default)]
@@ -86,50 +88,76 @@ fn get_data(trace_input: &str) -> MemoryData {
     }
 }
 
+fn get_std_dev(std_dev_sum: u128, mean: Duration, total_runs: usize) -> Duration {
+    let total_std_dev = (std_dev_sum / total_runs as u128) - mean.as_nanos().pow(2);
+    let total_std_dev = (total_std_dev as f64).sqrt() / NANOS_PER_SECOND;
+    Duration::from_secs_f64(total_std_dev)
+}
+
 fn bench_function_runtime<Output, OutputErr>(
     bench_time: u64,
     func: impl Fn() -> Result<Output, OutputErr>,
 ) -> RuntimeData {
     let mut total_time = Duration::default();
     let mut total_runs = 0;
-    let mut min_run = Duration::from_secs(u64::MAX);
-    let mut max_run = Duration::default();
+    // I don't see any runtime going beyond 10 seconds, which would only result
+    // in 10,000,000,000 ^ 2, or 10^20. A u128 has 10^38 precision.
+    let mut total_std_dev_sum = 0;
     let bench_start = Instant::now();
+    let mut samples = Vec::with_capacity(MAX_SAMPLES);
 
     loop {
         let start = Instant::now();
         let res = func();
         let elapsed = start.elapsed();
+        samples.push(elapsed);
         total_time += elapsed;
         total_runs += 1;
+        total_std_dev_sum += elapsed.as_nanos().pow(2);
 
         // Don't drop while measuring, in case the user returns a non-trivial type.
         // Also don't handle errors, as the function is assumed to be pure, and has already
         // had its return value checked in our caller.
         drop(res);
 
-        if elapsed < min_run {
-            min_run = elapsed;
-        }
-
-        if elapsed > max_run {
-            max_run = elapsed;
-        }
-
         if (bench_start.elapsed().as_secs() >= bench_time && total_runs >= 10)
-            || total_runs > 1_000_000
+            || total_runs > MAX_SAMPLES
         {
             break;
         }
     }
 
-    let mean_run = total_time / total_runs;
+    let unfiltered_mean_run = total_time / total_runs as u32;
+
+    let double_total_std_dev = get_std_dev(total_std_dev_sum, unfiltered_mean_run, total_runs) * 2;
+
+    // The raw samples have some pretty extreme outliers. We'll filter out those more than 2 standard
+    // deviations from the unfiltered mean and recalculate the mean and std. dev.
+    samples.sort_unstable();
+    samples.retain(|&sample| {
+        let (smaller, larger) = (
+            sample.min(unfiltered_mean_run),
+            sample.max(unfiltered_mean_run),
+        );
+        (larger - smaller) <= double_total_std_dev
+    });
+
+    let total_filtered_runs = samples.len();
+
+    let (mean_sum, filtered_std_dev_sum) = samples.into_iter().fold(
+        (Duration::ZERO, 0u128),
+        |(mean_sum, std_dev_sum), sample| {
+            (mean_sum + sample, std_dev_sum + sample.as_nanos().pow(2))
+        },
+    );
+
+    let mean_run = mean_sum / total_filtered_runs as u32;
+    let std_dev = get_std_dev(filtered_std_dev_sum, mean_run, total_filtered_runs);
 
     RuntimeData {
         // total_runs,
-        min_run,
         mean_run,
-        max_run,
+        std_dev,
     }
 }
 

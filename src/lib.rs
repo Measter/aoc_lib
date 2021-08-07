@@ -23,7 +23,7 @@ const TABLE_PRE_COL_WIDTH: usize = 9;
 // The amount of space taken up by the ticker, day ID, and bench data columns, plus separators.
 const TABLE_SIMPLE_COLS_WIDTH: usize = TABLE_PRE_COL_WIDTH + 24;
 // The amount of space taken up by the ticker, day ID, and bench data columns, plus separators.
-const TABLE_DETAILED_COLS_WIDTH: usize = TABLE_PRE_COL_WIDTH + 57;
+const TABLE_DETAILED_COLS_WIDTH: usize = TABLE_PRE_COL_WIDTH + 46;
 
 #[derive(Debug, Error)]
 pub enum BenchError {
@@ -310,13 +310,13 @@ fn print_header(term_width: usize) {
             .max(12)
             .min(30);
         println!(
-            "   Day | {:<max_width$} | {:<32} | Allocs  | Max Mem.",
+            "   Day | {:<max_width$} | {:<21} | Allocs  | Max Mem.",
             "Answer",
             "Time",
             max_width = msg_max_width
         );
         println!(
-            "_______|_{0:_<max_width$}_|_{0:_<32}_|_________|__________",
+            "_______|_{0:_<max_width$}_|_{0:_<21}_|_________|__________",
             "",
             max_width = msg_max_width
         );
@@ -353,7 +353,7 @@ fn print_footer(total_time: Duration, term_width: usize) {
             .min(30);
         let time = render_duration(total_time);
         println!(
-            "_______|_{0:_<max_width$}_|_{0:_<32}_|_________|__________",
+            "_______|_{0:_<max_width$}_|_{0:_<21}_|_________|__________",
             "",
             max_width = msg_max_width
         );
