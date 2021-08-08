@@ -27,9 +27,12 @@ pub struct MemoryBenchError {
 
 #[derive(Default)]
 pub(crate) struct RuntimeData {
-    // pub(crate) total_runs: u32,
-    pub(crate) mean_run: Duration,
+    pub(crate) sample_count: usize,
+    pub(crate) mean: Duration,
     pub(crate) std_dev: Duration,
+    pub(crate) first_quartile: Duration,
+    pub(crate) third_quartile: Duration,
+    pub(crate) outlier_count: usize,
 }
 
 #[derive(Default)]
@@ -40,7 +43,7 @@ pub(crate) struct MemoryData {
     pub(crate) num_allocs: usize,
 }
 
-fn get_data(trace_input: &str) -> MemoryData {
+fn read_memory_data(trace_input: &str) -> MemoryData {
     let mut points = Vec::new();
     let mut cur_bytes = 0;
     let mut prev_bytes = 0;
@@ -88,21 +91,40 @@ fn get_data(trace_input: &str) -> MemoryData {
     }
 }
 
-fn get_std_dev(std_dev_sum: u128, mean: Duration, total_runs: usize) -> Duration {
-    let total_std_dev = (std_dev_sum / total_runs as u128) - mean.as_nanos().pow(2);
+// Not that this function expects the samples to be *SORTED* before being passed in.
+fn generate_runtime_stats(samples: &[Duration]) -> RuntimeData {
+    // I don't see any runtime going beyond 10 seconds, which would only result
+    // in 10,000,000,000 ^ 2, or 10^20. A u128 has 10^38 precision.
+
+    let (mean_sum, std_dev_sum) = samples.iter().fold(
+        (Duration::ZERO, 0u128),
+        |(mean_sum, std_dev_sum), &sample| {
+            (mean_sum + sample, std_dev_sum + sample.as_nanos().pow(2))
+        },
+    );
+
+    let mean = mean_sum / samples.len() as u32;
+    let total_std_dev = (std_dev_sum / samples.len() as u128) - mean.as_nanos().pow(2);
     let total_std_dev = (total_std_dev as f64).sqrt() / NANOS_PER_SECOND;
-    Duration::from_secs_f64(total_std_dev)
+    let std_dev = Duration::from_secs_f64(total_std_dev);
+
+    let first_quartile = samples[samples.len() / 4];
+    let third_quartile = samples[samples.len() * 3 / 4];
+
+    RuntimeData {
+        mean,
+        std_dev,
+        sample_count: samples.len(),
+        outlier_count: 0,
+        first_quartile,
+        third_quartile,
+    }
 }
 
 fn bench_function_runtime<Output, OutputErr>(
     bench_time: u64,
     func: impl Fn() -> Result<Output, OutputErr>,
 ) -> RuntimeData {
-    let mut total_time = Duration::default();
-    let mut total_runs = 0;
-    // I don't see any runtime going beyond 10 seconds, which would only result
-    // in 10,000,000,000 ^ 2, or 10^20. A u128 has 10^38 precision.
-    let mut total_std_dev_sum = 0;
     let bench_start = Instant::now();
     let mut samples = Vec::with_capacity(MAX_SAMPLES);
 
@@ -111,54 +133,36 @@ fn bench_function_runtime<Output, OutputErr>(
         let res = func();
         let elapsed = start.elapsed();
         samples.push(elapsed);
-        total_time += elapsed;
-        total_runs += 1;
-        total_std_dev_sum += elapsed.as_nanos().pow(2);
 
         // Don't drop while measuring, in case the user returns a non-trivial type.
         // Also don't handle errors, as the function is assumed to be pure, and has already
         // had its return value checked in our caller.
         drop(res);
 
-        if (bench_start.elapsed().as_secs() >= bench_time && total_runs >= 10)
-            || total_runs > MAX_SAMPLES
+        if (bench_start.elapsed().as_secs() >= bench_time && samples.len() >= 10)
+            || samples.len() > MAX_SAMPLES
         {
             break;
         }
     }
 
-    let unfiltered_mean_run = total_time / total_runs as u32;
-
-    let double_total_std_dev = get_std_dev(total_std_dev_sum, unfiltered_mean_run, total_runs) * 2;
+    samples.sort_unstable();
+    let unfiltered_stats = generate_runtime_stats(&samples);
 
     // The raw samples have some pretty extreme outliers. We'll filter out those more than 2 standard
     // deviations from the unfiltered mean and recalculate the mean and std. dev.
-    samples.sort_unstable();
     samples.retain(|&sample| {
         let (smaller, larger) = (
-            sample.min(unfiltered_mean_run),
-            sample.max(unfiltered_mean_run),
+            sample.min(unfiltered_stats.mean),
+            sample.max(unfiltered_stats.mean),
         );
-        (larger - smaller) <= double_total_std_dev
+        (larger - smaller) <= unfiltered_stats.std_dev * 2
     });
 
-    let total_filtered_runs = samples.len();
+    let mut filtered_stats = generate_runtime_stats(&samples);
+    filtered_stats.outlier_count = unfiltered_stats.sample_count - filtered_stats.sample_count;
 
-    let (mean_sum, filtered_std_dev_sum) = samples.into_iter().fold(
-        (Duration::ZERO, 0u128),
-        |(mean_sum, std_dev_sum), sample| {
-            (mean_sum + sample, std_dev_sum + sample.as_nanos().pow(2))
-        },
-    );
-
-    let mean_run = mean_sum / total_filtered_runs as u32;
-    let std_dev = get_std_dev(filtered_std_dev_sum, mean_run, total_filtered_runs);
-
-    RuntimeData {
-        // total_runs,
-        mean_run,
-        std_dev,
-    }
+    filtered_stats
 }
 
 fn bench_function_memory<Output, OutputErr>(
@@ -187,7 +191,7 @@ fn bench_function_memory<Output, OutputErr>(
     trace_file.seek(SeekFrom::Start(0))?;
     trace_file.read_to_string(&mut mem_trace)?;
 
-    Ok(get_data(&mem_trace))
+    Ok(read_memory_data(&mem_trace))
 }
 
 pub(crate) enum BenchEvent {

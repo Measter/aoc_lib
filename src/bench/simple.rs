@@ -107,7 +107,7 @@ impl BenchedFunction {
             let time = self
                 .timing_data
                 .as_ref()
-                .map(|td| render_duration(td.mean_run))
+                .map(|td| render_duration(td.mean))
                 .unwrap_or_else(String::new);
             let mem = self
                 .memory_data
@@ -139,7 +139,7 @@ impl BenchedFunction {
             let (mean_time, std_dev) = self
                 .timing_data
                 .as_ref()
-                .map(|td| (render_duration(td.mean_run), render_duration(td.std_dev)))
+                .map(|td| (render_duration(td.mean), render_duration(td.std_dev)))
                 .unwrap_or_default();
 
             let (allocs, mem) = self
@@ -195,7 +195,7 @@ fn ui_update_worker(
             BenchEvent::Memory { data, id } => funcs[id].memory(data),
             BenchEvent::Timing { data, id } => {
                 time_sender
-                    .send(data.mean_run)
+                    .send(data.mean)
                     .expect("Failed to send timing from handler thread");
                 funcs[id].timing(data);
             }
