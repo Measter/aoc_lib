@@ -107,7 +107,7 @@ impl BenchedFunction {
             let time = self
                 .timing_data
                 .as_ref()
-                .map(|td| render_duration(td.mean))
+                .map(|td| render_duration(td.mean, true))
                 .unwrap_or_else(String::new);
             let mem = self
                 .memory_data
@@ -139,7 +139,12 @@ impl BenchedFunction {
             let (mean_time, std_dev) = self
                 .timing_data
                 .as_ref()
-                .map(|td| (render_duration(td.mean), render_duration(td.std_dev)))
+                .map(|td| {
+                    (
+                        render_duration(td.mean, true),
+                        render_duration(td.std_dev, false),
+                    )
+                })
                 .unwrap_or_default();
 
             let (allocs, mem) = self

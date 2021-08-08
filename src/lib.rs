@@ -1,6 +1,6 @@
 use std::{fmt::Display, iter, num::ParseIntError, time::Duration};
 
-use console::Term;
+use console::{style, Term};
 use crossbeam_channel::Receiver;
 use once_cell::sync::Lazy;
 use structopt::StructOpt;
@@ -250,9 +250,9 @@ pub(crate) fn render_decimal(val: usize) -> String {
     )
 }
 
-pub fn render_duration(time: Duration) -> String {
+pub fn render_duration(duration: Duration, colour: bool) -> String {
     // The logic here is basically copied from Criterion.
-    let time = time.as_nanos() as f64;
+    let time = duration.as_nanos() as f64;
 
     let (factor, unit) = if time < 10f64.powi(0) {
         (10f64.powi(3), "ps")
@@ -278,7 +278,17 @@ pub fn render_duration(time: Duration) -> String {
         0
     };
 
-    format!("{:>5.prec$} {}", time, unit, prec = prec)
+    let mut rendered_time = style(format!("{:>5.prec$}", time, prec = prec));
+    let duration_millis = duration.as_millis();
+    if colour {
+        if duration_millis > 1000 {
+            rendered_time = rendered_time.red();
+        } else if colour && duration_millis > 100 {
+            rendered_time = rendered_time.yellow();
+        }
+    }
+
+    format!("{} {}", rendered_time, unit)
 }
 
 fn print_header(term_width: usize) {
@@ -334,7 +344,7 @@ fn print_footer(total_time: Duration, term_width: usize) {
             .saturating_sub(TABLE_SIMPLE_COLS_WIDTH)
             .max(12)
             .min(30);
-        let time = render_duration(total_time);
+        let time = render_duration(total_time, false);
         println!(
             "_______|_{0:_<max_width$}_|_{0:_<8}_|___________",
             "",
@@ -351,7 +361,7 @@ fn print_footer(total_time: Duration, term_width: usize) {
             .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
             .max(12)
             .min(30);
-        let time = render_duration(total_time);
+        let time = render_duration(total_time, false);
         println!(
             "_______|_{0:_<max_width$}_|_{0:_<21}_|_________|__________",
             "",
