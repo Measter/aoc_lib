@@ -13,7 +13,9 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::{
-    bench::{bench_worker, AlternateAnswer, Bench, BenchEvent, Function, MemoryData, RuntimeData},
+    bench::{
+        bench_worker, AlternateAnswer, Bench, BenchEvent, MemoryData, RuntimeData, SetupFunction,
+    },
     print_alt_answers, print_footer, print_header, render_decimal, render_duration, BenchError,
     BenchResult, Day, RunType, TracingAlloc, ARGS, TABLE_DETAILED_COLS_WIDTH, TABLE_PRE_COL_WIDTH,
     TABLE_SIMPLE_COLS_WIDTH,
@@ -23,7 +25,7 @@ struct BenchedFunction {
     // name: &'static str,
     day: u8,
     day_function_id: u8,
-    function: Function,
+    function: SetupFunction,
     message: String,
     is_error: bool,
     timing_data: Option<RuntimeData>,

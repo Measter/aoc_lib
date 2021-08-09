@@ -12,7 +12,7 @@ use crate::{input, BenchError, BenchResult, TracingAlloc};
 
 pub mod simple;
 
-pub type Function = for<'a> fn(&'a str, Bench) -> BenchResult;
+pub type SetupFunction = for<'a> fn(&'a str, Bench) -> BenchResult;
 
 const NANOS_PER_SECOND: f64 = 1_000_000_000.0;
 const MAX_SAMPLES: usize = 1_000_000;
@@ -291,7 +291,7 @@ impl Bench {
     }
 }
 
-pub(crate) fn bench_worker(year: u16, day: u8, bench: Bench, func: Function) {
+pub(crate) fn bench_worker(year: u16, day: u8, bench: Bench, func: SetupFunction) {
     let id = bench.id;
     let sender = bench.chan.clone();
     match input(year, day).open() {

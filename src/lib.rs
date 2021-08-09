@@ -13,7 +13,9 @@ pub mod parsers;
 
 pub use alloc::TracingAlloc;
 pub use bench::Bench;
-use bench::{simple::run_simple_bench, AlternateAnswer, BenchEvent, Function, MemoryBenchError};
+use bench::{
+    simple::run_simple_bench, AlternateAnswer, BenchEvent, MemoryBenchError, SetupFunction,
+};
 
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
@@ -193,8 +195,8 @@ pub fn input(year: u16, day: u8) -> InputFile<ProblemInput> {
 pub struct Day {
     pub name: &'static str,
     pub day: u8,
-    pub part_1: Function,
-    pub part_2: Option<Function>,
+    pub part_1: SetupFunction,
+    pub part_2: Option<SetupFunction>,
 }
 
 fn get_days<'d>(days: &'d [Day], filter: &[u8]) -> Result<Vec<&'d Day>, BenchError> {
