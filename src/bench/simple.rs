@@ -13,13 +13,11 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::{
-    bench::{bench_worker, Bench, BenchEvent, Function, MemoryData, RuntimeData},
+    bench::{bench_worker, AlternateAnswer, Bench, BenchEvent, Function, MemoryData, RuntimeData},
     print_alt_answers, print_footer, print_header, render_decimal, render_duration, BenchError,
     BenchResult, Day, RunType, TracingAlloc, ARGS, TABLE_DETAILED_COLS_WIDTH, TABLE_PRE_COL_WIDTH,
     TABLE_SIMPLE_COLS_WIDTH,
 };
-
-use super::AlternateAnswer;
 
 struct BenchedFunction {
     // name: &'static str,
@@ -191,17 +189,33 @@ fn tick_bars_worker(bars: Vec<ProgressBar>) {
 fn ui_update_worker(
     funcs: Arc<Mutex<Vec<BenchedFunction>>>,
     receiver: Receiver<BenchEvent>,
+    alt_answers: Sender<AlternateAnswer>,
     time_sender: Sender<Duration>,
 ) {
     let mut funcs = funcs.lock().unwrap();
     for event in receiver.iter() {
         match event {
-            BenchEvent::Answer { answer, id } => funcs[id].answer(answer),
+            BenchEvent::Answer {
+                answer,
+                id,
+                is_alt: false,
+            } => funcs[id].answer(answer),
+            BenchEvent::Answer { answer, id, .. } => {
+                let func = &mut funcs[id];
+                alt_answers
+                    .send(AlternateAnswer {
+                        answer,
+                        day: func.day,
+                        day_function_id: func.day_function_id,
+                    })
+                    .expect("Failed to send alternate answer from UI thread");
+                func.answer("Check alternate answers".to_owned());
+            }
             BenchEvent::Memory { data, id } => funcs[id].memory(data),
             BenchEvent::Timing { data, id } => {
                 time_sender
                     .send(data.mean)
-                    .expect("Failed to send timing from handler thread");
+                    .expect("Failed to send timing from UI thread");
                 funcs[id].timing(data);
             }
             BenchEvent::Error { err, id } => funcs[id].error(err),
@@ -242,9 +256,6 @@ fn bench_days_chunk(
         let bench = Bench {
             alloc,
             id,
-            day: func.day,
-            day_function_id: func.day_function_id,
-            alt_answer_chan: alt_answer_sender.clone(),
             chan: sender.clone(),
             run_only: ARGS.run_type.is_run_only(),
             bench_time: ARGS.bench_time,
@@ -271,7 +282,7 @@ fn bench_days_chunk(
     let funcs = Arc::new(Mutex::new(funcs));
     let ui_update_thread = thread::spawn({
         let funcs = funcs.clone();
-        move || ui_update_worker(funcs, receiver, time_sender)
+        move || ui_update_worker(funcs, receiver, alt_answer_sender, time_sender)
     });
 
     let mb_join_res = multi_bars.join_and_clear();

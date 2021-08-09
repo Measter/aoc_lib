@@ -195,11 +195,26 @@ fn bench_function_memory<Output, OutputErr>(
 }
 
 pub(crate) enum BenchEvent {
-    Answer { answer: String, id: usize },
-    Memory { data: MemoryData, id: usize },
-    Timing { data: RuntimeData, id: usize },
-    Error { err: String, id: usize },
-    Finish { id: usize },
+    Answer {
+        answer: String,
+        id: usize,
+        is_alt: bool,
+    },
+    Memory {
+        data: MemoryData,
+        id: usize,
+    },
+    Timing {
+        data: RuntimeData,
+        id: usize,
+    },
+    Error {
+        err: String,
+        id: usize,
+    },
+    Finish {
+        id: usize,
+    },
 }
 
 pub(crate) struct AlternateAnswer {
@@ -210,11 +225,8 @@ pub(crate) struct AlternateAnswer {
 
 pub struct Bench {
     pub(crate) alloc: &'static TracingAlloc,
-    pub(crate) day: u8,
-    pub(crate) day_function_id: u8,
     pub(crate) id: usize,
     pub(crate) chan: Sender<BenchEvent>,
-    pub(crate) alt_answer_chan: Sender<AlternateAnswer>,
     pub(crate) run_only: bool,
     pub(crate) bench_time: u64,
 }
@@ -253,23 +265,11 @@ impl Bench {
             })
             .map_err(|_| BenchError::ChannelError(self.id))?;
 
-        let answer = if is_alt {
-            self.alt_answer_chan
-                .send(AlternateAnswer {
-                    answer: answer.to_string(),
-                    day: self.day,
-                    day_function_id: self.day_function_id,
-                })
-                .map_err(|_| BenchError::ChannelError(self.id))?;
-            "Check alternate answers".to_owned()
-        } else {
-            answer.to_string()
-        };
-
         self.chan
             .send(BenchEvent::Answer {
-                answer,
+                answer: answer.to_string(),
                 id: self.id,
+                is_alt,
             })
             .map_err(|_| BenchError::ChannelError(self.id))?;
 

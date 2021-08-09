@@ -263,7 +263,7 @@ pub fn render_duration(duration: Duration, colour: bool) -> String {
     } else if time < 10f64.powi(9) {
         (10f64.powi(-6), "ms")
     } else {
-        (10f64.powi(-9), "s")
+        (10f64.powi(-9), "s ")
     };
 
     let time = time * factor;
@@ -402,9 +402,6 @@ fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), 
         let dummy = Bench {
             alloc,
             id: 0,
-            day: day.day,
-            day_function_id: id,
-            alt_answer_chan: alt_answer_sender.clone(),
             chan: sender.clone(),
             run_only: true,
             bench_time: 0,
@@ -414,6 +411,20 @@ fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), 
         part(&input, dummy)?;
 
         let message = match receiver.recv().expect("Failed to receive from channel") {
+            BenchEvent::Answer {
+                answer,
+                is_alt: true,
+                ..
+            } => {
+                alt_answer_sender
+                    .send(AlternateAnswer {
+                        answer,
+                        day: day.day,
+                        day_function_id: id,
+                    })
+                    .expect("Failed to send alternate answer");
+                "Check alternate answers".to_owned()
+            }
             BenchEvent::Answer { answer: msg, .. } | BenchEvent::Error { err: msg, .. } => msg,
             _ => unreachable!("Should only receive an Answer or Error"),
         };
