@@ -283,9 +283,9 @@ pub fn render_duration(duration: Duration, colour: bool) -> String {
     let mut rendered_time = style(format!("{:>5.prec$}", time, prec = prec));
     let duration_millis = duration.as_millis();
     if colour {
-        if duration_millis > 1000 {
+        if duration_millis > 500 {
             rendered_time = rendered_time.red();
-        } else if colour && duration_millis > 100 {
+        } else if colour && duration_millis > 50 {
             rendered_time = rendered_time.yellow();
         }
     }
