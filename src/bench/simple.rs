@@ -1,7 +1,6 @@
 use std::{
     iter,
     panic::{self},
-    sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -189,12 +188,11 @@ fn tick_bars_worker(bars: Vec<ProgressBar>) {
 }
 
 fn ui_update_worker(
-    funcs: Arc<Mutex<Vec<BenchedFunction>>>,
+    mut funcs: Vec<BenchedFunction>,
     receiver: Receiver<BenchEvent>,
     alt_answers: Sender<AlternateAnswer>,
     time_sender: Sender<Duration>,
-) {
-    let mut funcs = funcs.lock().unwrap();
+) -> Vec<BenchedFunction> {
     for event in receiver.iter() {
         match event {
             BenchEvent::Answer {
@@ -224,6 +222,8 @@ fn ui_update_worker(
             BenchEvent::Finish { id } => funcs[id].finish(),
         }
     }
+
+    funcs
 }
 
 fn bench_days_chunk(
@@ -281,11 +281,8 @@ fn bench_days_chunk(
     // Rayon's scope function seems to end up in the pool, so we need to make sure we get a new thread.
     // We also need both this thread and the handler thread to have access to funcs, but spawn needs
     // 'static. In the words of Jon Hoo, this makes me sad...
-    let funcs = Arc::new(Mutex::new(funcs));
-    let ui_update_thread = thread::spawn({
-        let funcs = funcs.clone();
-        move || ui_update_worker(funcs, receiver, alt_answer_sender, time_sender)
-    });
+    let ui_update_thread =
+        thread::spawn(move || ui_update_worker(funcs, receiver, alt_answer_sender, time_sender));
 
     let mb_join_res = multi_bars.join_and_clear();
     let ui_thread_res = ui_update_thread.join();
@@ -294,13 +291,12 @@ fn bench_days_chunk(
     panic::set_hook(old_panic_hook);
 
     mb_join_res.expect("Failed to join progress bars");
-    ui_thread_res.expect("Failed to join handler thread");
     tick_res.expect("Failed to join tick thread");
+    let funcs = ui_thread_res.expect("Failed to join handler thread");
 
     // Now we've finished, to clear up a render bug when the parts finish rapidly
     // we'll re-render on stdout.
-    let funcs = funcs.lock().unwrap();
-    for func in &*funcs {
+    for func in funcs {
         let day = format!("{:>2}.{}", func.day, func.day_function_id);
         let day = if func.is_error {
             style(day).red()
