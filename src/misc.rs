@@ -12,7 +12,14 @@ impl<'a, T, const N: usize> Iterator for ArrWindows<'a, T, N> {
         self.0 = self.0.get(1..)?;
         next.try_into().ok()
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.0.len().saturating_sub(N - 1);
+        (len, Some(len))
+    }
 }
+
+impl<'a, T, const N: usize> ExactSizeIterator for ArrWindows<'a, T, N> {}
 
 impl<'a, T, const N: usize> ArrWindows<'a, T, N> {
     pub fn new(ts: &'a [T]) -> Self {
