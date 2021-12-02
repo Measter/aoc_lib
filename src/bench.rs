@@ -291,10 +291,10 @@ impl Bench {
     }
 }
 
-pub(crate) fn bench_worker(year: u16, day: u8, bench: Bench, func: SetupFunction) {
+pub(crate) fn bench_worker(day: u8, bench: Bench, func: SetupFunction) {
     let id = bench.id;
     let sender = bench.chan.clone();
-    match input(year, day).open() {
+    match input(day).open() {
         Ok(input) => {
             let did_panic = catch_unwind(|| func(&input, bench));
 

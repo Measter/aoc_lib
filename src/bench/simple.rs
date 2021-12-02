@@ -228,7 +228,6 @@ fn ui_update_worker(
 
 fn bench_days_chunk(
     alloc: &'static TracingAlloc,
-    year: u16,
     mut funcs: Vec<BenchedFunction>,
     alt_answer_sender: Sender<AlternateAnswer>,
     spinner_style: &ProgressStyle,
@@ -265,7 +264,7 @@ fn bench_days_chunk(
         let day = func.day;
         let f = func.function;
 
-        pool.spawn(move || bench_worker(year, day, bench, f));
+        pool.spawn(move || bench_worker(day, bench, f));
     }
 
     // Using the built-in steady tick spawns a thread for each bar. We could have up to 50.
@@ -309,7 +308,7 @@ fn bench_days_chunk(
     Ok(time_receiver.iter().sum())
 }
 
-pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) -> BenchResult {
+pub fn run_simple_bench(alloc: &'static TracingAlloc, days: &[&Day]) -> BenchResult {
     // We should limit the number of threads in the pool. Having too many
     // results in them basically fighting for priority with the two update threads
     // negatively effecting the benchmark.
@@ -383,7 +382,6 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, year: u16, days: &[&Day]) 
         .map(|days_chunk| {
             bench_days_chunk(
                 alloc,
-                year,
                 days_chunk,
                 alt_answer_sender.clone(),
                 &spinner_style,

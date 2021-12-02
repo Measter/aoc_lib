@@ -1,4 +1,4 @@
-use std::{fmt::Display, iter, num::ParseIntError, time::Duration};
+use std::{iter, num::ParseIntError, time::Duration};
 
 use console::{style, Term};
 use crossbeam_channel::Receiver;
@@ -8,6 +8,7 @@ use thiserror::Error;
 
 mod alloc;
 mod bench;
+mod input;
 pub mod misc;
 pub mod parsers;
 
@@ -16,6 +17,7 @@ pub use bench::Bench;
 use bench::{
     simple::run_simple_bench, AlternateAnswer, BenchEvent, MemoryBenchError, SetupFunction,
 };
+pub use input::*;
 
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
@@ -116,79 +118,6 @@ pub(crate) struct Args {
     #[structopt(long = "threads")]
     /// How many worker threads to spawn for benchmarking [default: cores - 2, min: 1]
     num_threads: Option<usize>,
-}
-
-pub struct ProblemInput;
-impl Display for ProblemInput {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("")
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Example {
-    Parse,
-    Part1,
-    Part2,
-    Other(&'static str),
-}
-
-impl Display for Example {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let output = match self {
-            Example::Parse => "parse",
-            Example::Part1 => "part1",
-            Example::Part2 => "part2",
-            Example::Other(s) => s,
-        };
-
-        f.write_str(output)
-    }
-}
-
-pub struct InputFile<T> {
-    year: u16,
-    day: u8,
-    example_id: Option<(Example, T)>,
-}
-
-impl InputFile<ProblemInput> {
-    pub fn example<T: Display>(self, part: Example, id: T) -> InputFile<T> {
-        InputFile {
-            year: self.year,
-            day: self.day,
-            example_id: Some((part, id)),
-        }
-    }
-}
-
-impl<T: Display> InputFile<T> {
-    pub fn open(self) -> Result<String, BenchError> {
-        let path = if let Some((part, id)) = self.example_id {
-            format!(
-                "./example_inputs/aoc_{:02}{:02}_{}-{}.txt",
-                self.year % 100,
-                self.day,
-                part,
-                id
-            )
-        } else {
-            format!("./inputs/aoc_{:02}{:02}.txt", self.year % 100, self.day)
-        };
-
-        std::fs::read_to_string(&path).map_err(|e| BenchError::InputFileError {
-            inner: e,
-            name: path,
-        })
-    }
-}
-
-pub fn input(year: u16, day: u8) -> InputFile<ProblemInput> {
-    InputFile {
-        year,
-        day,
-        example_id: None,
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -390,7 +319,7 @@ fn print_alt_answers(receiver: Receiver<AlternateAnswer>) {
 
 // No need for all of the complex machinery just to run the two functions, given we want
 // panics to happen as normal.
-fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), BenchError> {
+fn run_single(alloc: &'static TracingAlloc, day: &Day) -> Result<(), BenchError> {
     let stdout = Term::stdout();
     let (_, cols) = stdout.size();
     print_header(cols as _);
@@ -409,7 +338,7 @@ fn run_single(alloc: &'static TracingAlloc, year: u16, day: &Day) -> Result<(), 
             bench_time: 0,
         };
 
-        let input = input(year, day.day).open()?;
+        let input = input(day.day).open()?;
         part(&input, dummy)?;
 
         let message = match receiver.recv().expect("Failed to receive from channel") {
@@ -447,9 +376,9 @@ pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), 
 
     println!("Advent of Code {}", year);
     match (&ARGS.run_type, &*days) {
-        (RunType::Run { .. }, [day]) => run_single(alloc, year, day),
+        (RunType::Run { .. }, [day]) => run_single(alloc, day),
         (RunType::Detailed { .. }, _) => todo!(),
-        (RunType::Run { .. } | RunType::Bench { .. }, days) => run_simple_bench(alloc, year, days),
+        (RunType::Run { .. } | RunType::Bench { .. }, days) => run_simple_bench(alloc, days),
     }
 }
 
