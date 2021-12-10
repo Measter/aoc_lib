@@ -16,12 +16,10 @@ use crate::{
         bench_worker, AlternateAnswer, Bench, BenchEvent, MemoryData, RuntimeData, SetupFunction,
     },
     print_alt_answers, print_footer, print_header, render_decimal, render_duration, BenchError,
-    BenchResult, Day, RunType, TracingAlloc, ARGS, TABLE_DETAILED_COLS_WIDTH, TABLE_PRE_COL_WIDTH,
-    TABLE_SIMPLE_COLS_WIDTH,
+    BenchResult, Day, TracingAlloc, ARGS, TABLE_DETAILED_COLS_WIDTH, TABLE_PRE_COL_WIDTH,
 };
 
 struct BenchedFunction {
-    // name: &'static str,
     day: u8,
     day_function_id: u8,
     function: SetupFunction,
@@ -86,41 +84,6 @@ impl BenchedFunction {
                 .map(|(i, _)| &self.message[..i])
                 .unwrap_or(&self.message)
                 .to_owned()
-        } else if let RunType::Bench {
-            detailed: false, ..
-        } = &ARGS.run_type
-        {
-            let msg_max_width = self
-                .term_width
-                .saturating_sub(TABLE_SIMPLE_COLS_WIDTH)
-                .max(12)
-                .min(30);
-
-            let msg = self
-                .message
-                .char_indices()
-                .nth(msg_max_width)
-                .map(|(i, _)| &self.message[..i])
-                .unwrap_or(&self.message);
-
-            let time = self
-                .timing_data
-                .as_ref()
-                .map(|td| render_duration(td.mean, true))
-                .unwrap_or_else(String::new);
-            let mem = self
-                .memory_data
-                .as_ref()
-                .map(|md| format!("{}", ByteSize(md.max_memory as u64)))
-                .unwrap_or_else(String::new);
-
-            format!(
-                "{:<msg_width$} | {:<8} | {}",
-                msg,
-                time,
-                mem,
-                msg_width = msg_max_width
-            )
         } else {
             let msg_max_width = self
                 .term_width
@@ -278,8 +241,6 @@ fn bench_days_chunk(
     // We don't want to spawn the handler thread in the worker pool, because the benchmarking will
     // hog the pool's threads, meaning the UI updates won't happen in a timely manner.
     // Rayon's scope function seems to end up in the pool, so we need to make sure we get a new thread.
-    // We also need both this thread and the handler thread to have access to funcs, but spawn needs
-    // 'static. In the words of Jon Hoo, this makes me sad...
     let ui_update_thread =
         thread::spawn(move || ui_update_worker(funcs, receiver, alt_answer_sender, time_sender));
 

@@ -10,11 +10,13 @@ use thiserror::Error;
 
 use crate::{input, BenchError, BenchResult, TracingAlloc};
 
+pub mod detailed;
 pub mod simple;
 
 pub type SetupFunction = for<'a> fn(&'a str, Bench) -> BenchResult;
 
 const NANOS_PER_SECOND: f64 = 1_000_000_000.0;
+const NANOS_PER_SECOND_INT: u128 = 1_000_000_000;
 const MAX_SAMPLES: usize = 1_000_000;
 
 #[derive(Debug, Error)]
@@ -37,8 +39,9 @@ pub(crate) struct RuntimeData {
 
 #[derive(Default)]
 pub(crate) struct MemoryData {
-    // pub(crate) end_ts: u128,
-    // pub(crate) graph_points: Vec<(f64, f64)>,
+    pub(crate) end_ts: f32,
+    pub(crate) end_ts_duration: Duration,
+    pub(crate) graph_points: Vec<(f32, f32)>,
     pub(crate) max_memory: usize,
     pub(crate) num_allocs: usize,
 }
@@ -47,7 +50,8 @@ fn read_memory_data(trace_input: &str) -> MemoryData {
     let mut points = Vec::new();
     let mut cur_bytes = 0;
     let mut prev_bytes = 0;
-    // let mut end_ts = 0;
+    let mut end_ts_duration = Duration::ZERO;
+    let mut end_ts = 0.0;
     let mut max_bytes = 0;
     let mut num_allocs = 0;
 
@@ -66,7 +70,9 @@ fn read_memory_data(trace_input: &str) -> MemoryData {
             (Some("F"), Some(Ok(ts)), Some(Ok(size))) => (-size, ts),
             (Some("S"), Some(Ok(ts)), _) => (0, ts),
             (Some("E"), Some(Ok(ts)), _) => {
-                // end_ts = ts;
+                let (secs, nanos) = (ts / NANOS_PER_SECOND_INT, ts % NANOS_PER_SECOND_INT);
+                end_ts_duration = Duration::new(secs as _, nanos as _);
+                end_ts = ts as f32;
                 (0, ts)
             }
             _ => {
@@ -77,15 +83,16 @@ fn read_memory_data(trace_input: &str) -> MemoryData {
         cur_bytes += size;
         max_bytes = max_bytes.max(cur_bytes);
 
-        points.push((ts as f64, prev_bytes as f64));
-        points.push((ts as f64, cur_bytes as f64));
+        points.push((ts as f32, prev_bytes as f32));
+        points.push((ts as f32, cur_bytes as f32));
 
         prev_bytes = cur_bytes;
     }
 
     MemoryData {
-        // end_ts,
-        // graph_points: points,
+        end_ts,
+        end_ts_duration,
+        graph_points: points,
         max_memory: max_bytes as usize,
         num_allocs,
     }

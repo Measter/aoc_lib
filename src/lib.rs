@@ -1,4 +1,4 @@
-use std::{iter, num::ParseIntError, time::Duration};
+use std::{fmt::Display, iter, num::ParseIntError, time::Duration};
 
 use console::{style, Term};
 use crossbeam_channel::Receiver;
@@ -19,13 +19,13 @@ use bench::{
 };
 pub use input::*;
 
+use crate::bench::detailed::run_detailed_bench;
+
 static ARGS: Lazy<Args> = Lazy::new(Args::from_args);
 
 pub type BenchResult = Result<(), BenchError>;
 
 const TABLE_PRE_COL_WIDTH: usize = 9;
-// The amount of space taken up by the ticker, day ID, and bench data columns, plus separators.
-const TABLE_SIMPLE_COLS_WIDTH: usize = TABLE_PRE_COL_WIDTH + 24;
 // The amount of space taken up by the ticker, day ID, and bench data columns, plus separators.
 const TABLE_DETAILED_COLS_WIDTH: usize = TABLE_PRE_COL_WIDTH + 46;
 
@@ -59,6 +59,13 @@ pub fn UserError<E: Into<Box<dyn std::error::Error + Send + Sync>>>(e: E) -> Ben
 #[derive(Debug, Error)]
 pub enum NoError {}
 
+pub struct ParseResult<T>(pub T);
+impl<T> Display for ParseResult<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Parsed data")
+    }
+}
+
 // Getting an inexplicable compiler error if I just try let structopt handle a the
 // Option<Vec<u8>>, so I'm using this as a workaround.
 fn parse_days_list(src: &str) -> Result<u8, ParseIntError> {
@@ -83,12 +90,6 @@ pub(crate) enum RunType {
         /// Render more detailed benchmarking info.
         detailed: bool,
     },
-    /// Benchmarks all the days' functions, and provides a more detailed listing.
-    Detailed {
-        #[structopt(parse(try_from_str = parse_days_list))]
-        /// List of days to run [default: all]
-        days: Vec<u8>,
-    },
 }
 
 impl RunType {
@@ -98,9 +99,7 @@ impl RunType {
 
     fn days(&self) -> &[u8] {
         match self {
-            RunType::Run { days } | RunType::Bench { days, .. } | RunType::Detailed { days } => {
-                days
-            }
+            RunType::Run { days } | RunType::Bench { days, .. } => days,
         }
     }
 }
@@ -120,12 +119,14 @@ pub(crate) struct Args {
     num_threads: Option<usize>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Day {
     pub name: &'static str,
     pub day: u8,
     pub part_1: SetupFunction,
     pub part_2: Option<SetupFunction>,
+    pub parse: Option<SetupFunction>,
+    pub other: Vec<(&'static str, SetupFunction)>,
 }
 
 fn get_days<'d>(days: &'d [Day], filter: &[u8]) -> Result<Vec<&'d Day>, BenchError> {
@@ -226,26 +227,8 @@ fn print_header(term_width: usize) {
     if ARGS.run_type.is_run_only() {
         println!("   Day | Answer");
         println!("_______|_{0:_<30}", "");
-    } else if let RunType::Bench {
-        detailed: false, ..
-    } = &ARGS.run_type
+    }
     {
-        let msg_max_width = term_width
-            .saturating_sub(TABLE_SIMPLE_COLS_WIDTH)
-            .max(12)
-            .min(30);
-        println!(
-            "   Day | {:<max_width$} | {:<8} | Max Mem.",
-            "Answer",
-            "Time",
-            max_width = msg_max_width
-        );
-        println!(
-            "_______|_{0:_<max_width$}_|_{0:_<8}_|___________",
-            "",
-            max_width = msg_max_width
-        );
-    } else {
         let msg_max_width = term_width
             .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
             .max(12)
@@ -267,26 +250,6 @@ fn print_header(term_width: usize) {
 fn print_footer(total_time: Duration, term_width: usize) {
     if ARGS.run_type.is_run_only() {
         println!("_______|_{0:_<30}", "");
-    } else if let RunType::Bench {
-        detailed: false, ..
-    } = &ARGS.run_type
-    {
-        let msg_max_width = term_width
-            .saturating_sub(TABLE_SIMPLE_COLS_WIDTH)
-            .max(12)
-            .min(30);
-        let time = render_duration(total_time, false);
-        println!(
-            "_______|_{0:_<max_width$}_|_{0:_<8}_|___________",
-            "",
-            max_width = msg_max_width
-        );
-        println!(
-            " Total Time: {:max_width$} | {}",
-            "",
-            time,
-            max_width = msg_max_width - 4
-        );
     } else {
         let msg_max_width = term_width
             .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
@@ -377,32 +340,14 @@ pub fn run(alloc: &'static TracingAlloc, year: u16, days: &[Day]) -> Result<(), 
     println!("Advent of Code {}", year);
     match (&ARGS.run_type, &*days) {
         (RunType::Run { .. }, [day]) => run_single(alloc, day),
-        (RunType::Detailed { .. }, _) => todo!(),
-        (RunType::Run { .. } | RunType::Bench { .. }, days) => run_simple_bench(alloc, days),
-    }
-}
+        (
+            RunType::Run { .. }
+            | RunType::Bench {
+                detailed: false, ..
+            },
+            days,
+        ) => run_simple_bench(alloc, days),
 
-#[macro_export]
-macro_rules! day {
-    (day $id:literal: $name:literal
-        1: $p1:ident
-    ) => {
-        pub static DAY: $crate::Day = $crate::Day {
-            name: $name,
-            day: $id,
-            part_1: $p1,
-            part_2: None,
-        };
-    };
-    (day $id:literal: $name:literal
-        1: $p1:ident
-        2: $p2:ident
-    ) => {
-        pub static DAY: $crate::Day = $crate::Day {
-            name: $name,
-            day: $id,
-            part_1: $p1,
-            part_2: Some($p2),
-        };
-    };
+        (RunType::Bench { .. }, days) => run_detailed_bench(alloc, days),
+    }
 }
