@@ -26,10 +26,7 @@ struct BenchedFunction {
 }
 
 fn render_function_data(func: BenchedFunction, term_width: u16) {
-    let name = format!(
-        " Day {} {} - {} ",
-        func.day, func.day_function_id, func.name
-    );
+    let name = format!(" {} ", func.day_function_id,);
     println!("{:-^width$}", name, width = term_width as usize);
     print!("  Answer: ");
     if func.is_multiline_answer {
@@ -170,7 +167,18 @@ fn bench_days(
 
     // Now we've benchmarked, we'll render all the days.
     let mut total_time = Duration::ZERO;
+    let mut day_id = 99;
+
     for func in funcs {
+        if func.day != day_id {
+            day_id = func.day;
+            println!("{:#<width$}", "", width = term_width as usize);
+            let day_num = format!("Day {}", func.day);
+            println!("# {:^width$} #", day_num, width = term_width as usize - 4);
+            println!("# {:^width$} #", func.name, width = term_width as usize - 4);
+            println!("{:#<width$}", "", width = term_width as usize);
+        }
+
         if let Some(time) = &func.timing_data {
             total_time += time.mean;
         }
