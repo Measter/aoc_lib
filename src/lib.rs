@@ -227,8 +227,7 @@ fn print_header(term_width: usize) {
     if ARGS.run_type.is_run_only() {
         println!("   Day | Answer");
         println!("_______|_{0:_<30}", "");
-    }
-    {
+    } else {
         let msg_max_width = term_width
             .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
             .max(12)
