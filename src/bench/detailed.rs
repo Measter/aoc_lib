@@ -36,6 +36,11 @@ fn render_function_data(func: BenchedFunction, term_width: u16) {
     } else {
         println!("{}", func.message);
     }
+
+    if func.is_error {
+        return;
+    }
+
     let timing = func.timing_data.expect("No timing data?");
     println!("  -- Timing");
     println!(
