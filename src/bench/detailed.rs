@@ -253,7 +253,7 @@ pub fn run_detailed_bench(alloc: &'static TracingAlloc, days: &[&Day]) -> BenchR
             });
         }
 
-        for &(name, extra) in &day.other {
+        for &(name, extra) in day.other {
             benched_functions.push(BenchedFunction {
                 name: day.name,
                 day: day.day,

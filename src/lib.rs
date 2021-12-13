@@ -126,7 +126,7 @@ pub struct Day {
     pub part_1: SetupFunction,
     pub part_2: Option<SetupFunction>,
     pub parse: Option<SetupFunction>,
-    pub other: Vec<(&'static str, SetupFunction)>,
+    pub other: &'static [(&'static str, SetupFunction)],
 }
 
 fn get_days<'d>(days: &'d [Day], filter: &[u8]) -> Result<Vec<&'d Day>, BenchError> {
