@@ -125,7 +125,6 @@ pub struct Day {
     pub day: u8,
     pub part_1: SetupFunction,
     pub part_2: Option<SetupFunction>,
-    pub parse: Option<SetupFunction>,
     pub other: &'static [(&'static str, SetupFunction)],
 }
 

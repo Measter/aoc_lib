@@ -239,20 +239,6 @@ pub fn run_detailed_bench(alloc: &'static TracingAlloc, days: &[&Day]) -> BenchR
             });
         }
 
-        if let Some(parse) = day.parse {
-            benched_functions.push(BenchedFunction {
-                name: day.name,
-                day: day.day,
-                day_function_id: "Parse".to_owned(),
-                function: parse,
-                message: String::new(),
-                is_multiline_answer: false,
-                is_error: false,
-                timing_data: None,
-                memory_data: None,
-            });
-        }
-
         for &(name, extra) in day.other {
             benched_functions.push(BenchedFunction {
                 name: day.name,
