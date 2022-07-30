@@ -108,6 +108,7 @@ fn ui_update_worker(funcs: &mut Vec<BenchedFunction>, bench_events: Receiver<Ben
     progress_bar.set_style(
         ProgressStyle::default_bar()
             .template(" [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent}% ({eta})")
+            .unwrap()
             .progress_chars("#>-"),
     );
 

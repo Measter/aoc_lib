@@ -244,18 +244,16 @@ fn bench_days_chunk(
     let ui_update_thread =
         thread::spawn(move || ui_update_worker(funcs, receiver, alt_answer_sender, time_sender));
 
-    let mb_join_res = multi_bars.join_and_clear();
     let ui_thread_res = ui_update_thread.join();
     let tick_res = tick_thread.join();
+    let mb_clear_res = multi_bars.clear();
 
     panic::set_hook(old_panic_hook);
 
-    mb_join_res.expect("Failed to join progress bars");
+    mb_clear_res.expect("Failed to join progress bars");
     tick_res.expect("Failed to join tick thread");
     let funcs = ui_thread_res.expect("Failed to join handler thread");
 
-    // Now we've finished, to clear up a render bug when the parts finish rapidly
-    // we'll re-render on stdout.
     for func in funcs {
         let day = format!("{:>2}.{}", func.day, func.day_function_id);
         let day = if func.is_error {
@@ -294,13 +292,16 @@ pub fn run_simple_bench(alloc: &'static TracingAlloc, days: &[&Day]) -> BenchRes
 
     let spinner_style = ProgressStyle::default_spinner()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
-        .template("{spinner} {prefix:.dim} | {msg}");
+        .template("{spinner} {prefix:.dim} | {msg}")
+        .unwrap();
     let finished_spinner = spinner_style
         .clone()
-        .template("{spinner} {prefix:.green} | {msg}");
+        .template("{spinner} {prefix:.green} | {msg}")
+        .unwrap();
     let error_spinner = spinner_style
         .clone()
-        .template("{spinner} {prefix:.red} | {msg}");
+        .template("{spinner} {prefix:.red} | {msg}")
+        .unwrap();
 
     let mut benched_functions = Vec::new();
     let mut cur_chunk = Vec::new();
