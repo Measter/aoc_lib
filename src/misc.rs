@@ -1,4 +1,4 @@
-use std::convert::TryInto;
+use std::{convert::TryInto, marker::PhantomData, ptr::NonNull};
 
 // I'd rather stay with stable, so I guess I'll implement this myself.
 
@@ -28,5 +28,55 @@ impl<'a, T, const N: usize> ArrWindows<'a, T, N> {
 
     pub fn remaining(&self) -> &'a [T] {
         self.0
+    }
+}
+
+pub struct ArrChunksMut<'a, T, const N: usize> {
+    slice: NonNull<[T]>,
+    _marker: PhantomData<&'a mut T>,
+}
+
+impl<'a, T, const N: usize> Iterator for ArrChunksMut<'a, T, N> {
+    type Item = &'a mut [T; N];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY: We only construct self.slice from an existing reference, which cannot be null.
+        // We additionally only pass out non-overlapping subslices, so we can't end up with
+        // multiple unique references to the same data.
+        unsafe {
+            let slice = self.slice.as_mut();
+            if slice.len() < N {
+                return None;
+            }
+
+            let (start, end) = slice.split_at_mut(N);
+            self.slice = NonNull::new(end).unwrap();
+            start.try_into().ok()
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // SAFETY: See comment in `next` implementation.
+        unsafe {
+            let slice = self.slice.as_ref();
+
+            if slice.len() < N {
+                (0, Some(0))
+            } else {
+                let len = slice.len() / N;
+                (len, Some(len))
+            }
+        }
+    }
+}
+
+impl<'a, T, const N: usize> ExactSizeIterator for ArrChunksMut<'a, T, N> {}
+
+impl<'a, T, const N: usize> ArrChunksMut<'a, T, N> {
+    pub fn new(ts: &'a mut [T]) -> Self {
+        Self {
+            slice: NonNull::new(ts).unwrap(),
+            _marker: PhantomData,
+        }
     }
 }
