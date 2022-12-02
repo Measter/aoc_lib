@@ -31,6 +31,26 @@ impl<'a, T, const N: usize> ArrWindows<'a, T, N> {
     }
 }
 
+pub struct ArrChunks<'a, T, const N: usize> {
+    slice: &'a [T],
+}
+
+impl<'a, T, const N: usize> ArrChunks<'a, T, N> {
+    pub fn new(slice: &'a [T]) -> Self {
+        Self { slice }
+    }
+}
+
+impl<'a, T, const N: usize> Iterator for ArrChunks<'a, T, N> {
+    type Item = &'a [T; N];
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.slice.get(..N)?;
+        let rest = self.slice.get(N..)?;
+        self.slice = rest;
+        next.try_into().ok()
+    }
+}
+
 pub struct ArrChunksMut<'a, T, const N: usize> {
     slice: NonNull<[T]>,
     _marker: PhantomData<&'a mut T>,
