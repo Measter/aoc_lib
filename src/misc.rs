@@ -23,6 +23,7 @@ impl<'a, T, const N: usize> ExactSizeIterator for ArrWindows<'a, T, N> {}
 
 impl<'a, T, const N: usize> ArrWindows<'a, T, N> {
     pub fn new(ts: &'a [T]) -> Self {
+        assert!(N > 0);
         Self(ts)
     }
 
@@ -37,6 +38,7 @@ pub struct ArrChunks<'a, T, const N: usize> {
 
 impl<'a, T, const N: usize> ArrChunks<'a, T, N> {
     pub fn new(slice: &'a [T]) -> Self {
+        assert!(N > 0);
         Self { slice }
     }
 }
@@ -45,8 +47,7 @@ impl<'a, T, const N: usize> Iterator for ArrChunks<'a, T, N> {
     type Item = &'a [T; N];
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.slice.get(..N)?;
-        let rest = self.slice.get(N..)?;
-        self.slice = rest;
+        self.slice = self.slice.get(N..)?;
         next.try_into().ok()
     }
 }
@@ -94,6 +95,7 @@ impl<'a, T, const N: usize> ExactSizeIterator for ArrChunksMut<'a, T, N> {}
 
 impl<'a, T, const N: usize> ArrChunksMut<'a, T, N> {
     pub fn new(ts: &'a mut [T]) -> Self {
+        assert!(N > 0);
         Self {
             slice: NonNull::new(ts).unwrap(),
             _marker: PhantomData,
