@@ -128,6 +128,19 @@ fn generate_runtime_stats(samples: &[Duration]) -> RuntimeData {
     }
 }
 
+#[inline(never)]
+fn black_box<T>(t: T) -> T {
+    let ptr: *const T = &t;
+    unsafe {
+        let read = ptr.read_volatile();
+        // Our T may have a non-trivial drop implementation, so we have to forget it
+        // and not let it drop.
+        std::mem::forget(read);
+    }
+
+    t
+}
+
 fn bench_function_runtime<Output, OutputErr>(
     bench_time: u64,
     func: impl Fn() -> Result<Output, OutputErr>,
@@ -144,7 +157,7 @@ fn bench_function_runtime<Output, OutputErr>(
         // Don't drop while measuring, in case the user returns a non-trivial type.
         // Also don't handle errors, as the function is assumed to be pure, and has already
         // had its return value checked in our caller.
-        drop(res);
+        drop(black_box(res));
 
         if (bench_start.elapsed().as_secs() >= bench_time && samples.len() >= 10)
             || samples.len() > MAX_SAMPLES
