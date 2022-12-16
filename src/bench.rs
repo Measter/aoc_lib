@@ -1,5 +1,6 @@
 use std::{
     fmt::Display,
+    hint::black_box,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     panic::catch_unwind,
     time::{Duration, Instant},
@@ -126,19 +127,6 @@ fn generate_runtime_stats(samples: &[Duration]) -> RuntimeData {
         first_quartile,
         third_quartile,
     }
-}
-
-#[inline(never)]
-fn black_box<T>(t: T) -> T {
-    let ptr: *const T = &t;
-    unsafe {
-        let read = ptr.read_volatile();
-        // Our T may have a non-trivial drop implementation, so we have to forget it
-        // and not let it drop.
-        std::mem::forget(read);
-    }
-
-    t
 }
 
 fn bench_function_runtime<Output, OutputErr>(
