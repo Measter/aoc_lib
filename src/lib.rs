@@ -229,8 +229,7 @@ fn print_header(term_width: usize) {
     } else {
         let msg_max_width = term_width
             .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
-            .max(12)
-            .min(30);
+            .clamp(12, 30);
         println!(
             "   Day | {:<max_width$} | {:<21} | Allocs  | Max Mem.",
             "Answer",
@@ -251,8 +250,7 @@ fn print_footer(total_time: Duration, term_width: usize) {
     } else {
         let msg_max_width = term_width
             .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
-            .max(12)
-            .min(30);
+            .clamp(12, 30);
         let time = render_duration(total_time, false);
         println!(
             "_______|_{0:_<max_width$}_|_{0:_<21}_|_________|__________",

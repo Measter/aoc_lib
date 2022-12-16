@@ -88,8 +88,7 @@ impl BenchedFunction {
             let msg_max_width = self
                 .term_width
                 .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
-                .max(12)
-                .min(30);
+                .clamp(12, 30);
 
             let msg = self
                 .message
