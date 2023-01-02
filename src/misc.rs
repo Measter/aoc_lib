@@ -10,7 +10,7 @@ impl<T, U, E> ResultZip<T, U, E> for Result<T, E> {
     }
 }
 
-pub struct Top<T, const N: usize>([T; N]);
+pub struct Top<T, const N: usize>(pub [T; N]);
 impl<T: Ord, const N: usize> Top<T, N> {
     pub fn push(&mut self, mut value: T) {
         for v in &mut self.0 {
