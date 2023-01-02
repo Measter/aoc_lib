@@ -90,12 +90,15 @@ impl BenchedFunction {
                 .saturating_sub(TABLE_DETAILED_COLS_WIDTH)
                 .clamp(12, 30);
 
-            let msg = self
-                .message
-                .char_indices()
-                .nth(msg_max_width)
-                .map(|(i, _)| &self.message[..i])
-                .unwrap_or(&self.message);
+            let msg = if ARGS.censor {
+                "**CENSORED**"
+            } else {
+                self.message
+                    .char_indices()
+                    .nth(msg_max_width)
+                    .map(|(i, _)| &self.message[..i])
+                    .unwrap_or(&self.message)
+            };
 
             let (mean_time, std_dev) = self
                 .timing_data

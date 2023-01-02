@@ -117,6 +117,9 @@ pub(crate) struct Args {
     #[structopt(long = "threads")]
     /// How many worker threads to spawn for benchmarking [default: cores - 2, min: 1]
     num_threads: Option<usize>,
+
+    #[structopt(long)]
+    censor: bool,
 }
 
 #[derive(Clone)]
@@ -271,7 +274,11 @@ fn print_alt_answers(receiver: Receiver<AlternateAnswer>) {
         println!("\n -- Alternate Answers --");
         for alt_ans in receiver.iter() {
             println!("Day {}, Part: {}", alt_ans.day, alt_ans.day_function_id);
-            println!("{}\n", alt_ans.answer);
+            if ARGS.censor {
+                println!("**CENSORED**\n");
+            } else {
+                println!("{}\n", alt_ans.answer);
+            }
         }
     }
 }
@@ -306,20 +313,30 @@ fn run_single(alloc: &'static TracingAlloc, day: &Day) -> Result<(), BenchError>
                 is_alt: true,
                 ..
             } => {
-                alt_answer_sender
-                    .send(AlternateAnswer {
-                        answer,
-                        day: day.day,
-                        day_function_id: id,
-                    })
-                    .expect("Failed to send alternate answer");
-                "Check alternate answers".to_owned()
+                if !ARGS.censor {
+                    alt_answer_sender
+                        .send(AlternateAnswer {
+                            answer,
+                            day: day.day,
+                            day_function_id: id,
+                        })
+                        .expect("Failed to send alternate answer");
+
+                    "Check alternate answers".to_owned()
+                } else {
+                    String::new()
+                }
             }
             BenchEvent::Answer { answer: msg, .. } | BenchEvent::Error { err: msg, .. } => msg,
             _ => unreachable!("Should only receive an Answer or Error"),
         };
 
-        println!("  {:>2}.{} | {}", day.day, id, message);
+        print!("  {:>2}.{} | ", day.day, id,);
+        if ARGS.censor {
+            println!("**CENSORED**");
+        } else {
+            println!("{}", message);
+        }
     }
 
     print_footer(Duration::ZERO, cols as _);

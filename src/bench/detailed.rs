@@ -29,7 +29,9 @@ fn render_function_data(func: BenchedFunction, term_width: u16) {
     let name = format!(" {} ", func.day_function_id,);
     println!("{:-^width$}", name, width = term_width as usize);
     print!("  Answer: ");
-    if func.is_multiline_answer {
+    if ARGS.censor {
+        println!("**CENSORED**");
+    } else if func.is_multiline_answer {
         println!();
         println!("{}", func.message);
         println!();
