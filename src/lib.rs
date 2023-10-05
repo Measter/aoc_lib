@@ -10,7 +10,6 @@ mod alloc;
 mod bench;
 mod input;
 pub mod misc;
-pub mod parsers;
 
 pub use alloc::TracingAlloc;
 pub use bench::Bench;
