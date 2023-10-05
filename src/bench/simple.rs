@@ -76,7 +76,7 @@ impl BenchedFunction {
     }
 
     fn render(&self) -> String {
-        if self.is_error || ARGS.run_type.is_run_only() {
+        if self.is_error {
             // Keep the error within the width of the terminal.
             self.message
                 .char_indices()
@@ -84,6 +84,18 @@ impl BenchedFunction {
                 .map(|(i, _)| &self.message[..i])
                 .unwrap_or(&self.message)
                 .to_owned()
+        } else if ARGS.run_type.is_run_only() {
+            if ARGS.censor {
+                "**CENSORED**".to_owned()
+            } else {
+                // Keep the error within the width of the terminal.
+                self.message
+                    .char_indices()
+                    .nth(self.term_width - TABLE_PRE_COL_WIDTH)
+                    .map(|(i, _)| &self.message[..i])
+                    .unwrap_or(&self.message)
+                    .to_owned()
+            }
         } else {
             let msg_max_width = self
                 .term_width
