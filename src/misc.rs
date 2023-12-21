@@ -28,68 +28,68 @@ impl<T: Ord, const N: usize> Top<T, N> {
     }
 }
 
-#[derive(Debug)]
-pub struct IdGen<'a, T, Id, IdToUsize, UsizeToId> {
-    items: Vec<T>,
-    utoid: IdToUsize,
-    idtou: UsizeToId,
-    map: HashMap<&'a str, Id>,
+pub trait IdType {
+    fn from_usize(i: usize) -> Self;
+    fn to_usize(self) -> usize;
 }
 
-impl<'a, T, Id, UsizeToId, IdToUsize> IdGen<'a, T, Id, UsizeToId, IdToUsize>
+#[derive(Debug)]
+pub struct IdGen<'a, T, I> {
+    items: Vec<T>,
+    map: HashMap<&'a str, I>,
+}
+
+impl<'a, T, I> IdGen<'a, T, I>
 where
     T: Default,
-    Id: Copy,
-    UsizeToId: Fn(usize) -> Id,
-    IdToUsize: Fn(Id) -> usize,
+    I: Copy + IdType,
 {
-    pub fn new(utoid: UsizeToId, idtou: IdToUsize) -> Self {
-        Self {
-            items: Vec::new(),
-            utoid,
-            idtou,
-            map: HashMap::new(),
-        }
-    }
-
-    pub fn id_of(&mut self, id: &'a str) -> Id {
+    pub fn id_of(&mut self, id: &'a str) -> I {
         if let Some(&id) = self.map.get(id) {
             return id;
         }
 
-        let new_id = (self.utoid)(self.map.len());
+        let new_id = I::from_usize(self.map.len());
         self.items.push(T::default());
         self.map.insert(id, new_id);
         new_id
     }
 }
 
-impl<T, Id, UsizeToId, IdToUsize> IdGen<'_, T, Id, UsizeToId, IdToUsize> {
+impl<'a, T, I> Default for IdGen<'a, T, I> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T, I> IdGen<'_, T, I> {
+    pub fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            map: HashMap::new(),
+        }
+    }
     pub fn into_items(self) -> Vec<T> {
         self.items
     }
 }
 
-impl<'a, T, Id, UsizeToId, IdToUsize> Index<Id> for IdGen<'a, T, Id, UsizeToId, IdToUsize>
+impl<'a, T, I> Index<I> for IdGen<'a, T, I>
 where
-    Id: Copy,
-    IdToUsize: Fn(Id) -> usize,
+    I: Copy + IdType,
 {
     type Output = T;
 
-    fn index(&self, index: Id) -> &Self::Output {
-        let idx = (self.idtou)(index);
-        &self.items[idx]
+    fn index(&self, index: I) -> &Self::Output {
+        &self.items[index.to_usize()]
     }
 }
 
-impl<'a, T, Id, UsizeToId, IdToUsize> IndexMut<Id> for IdGen<'a, T, Id, UsizeToId, IdToUsize>
+impl<'a, T, I> IndexMut<I> for IdGen<'a, T, I>
 where
-    Id: Copy,
-    IdToUsize: Fn(Id) -> usize,
+    I: Copy + IdType,
 {
-    fn index_mut(&mut self, index: Id) -> &mut Self::Output {
-        let idx = (self.idtou)(index);
-        &mut self.items[idx]
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        &mut self.items[index.to_usize()]
     }
 }
